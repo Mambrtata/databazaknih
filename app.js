@@ -494,14 +494,11 @@ async function fetchBookDetails(title, author, originalTitle, attempt = 0, title
     const response = await fetch(url);
 
     if (response.status === 429) {
-      if (booksApiKey && attempt < 2) {
-        // s kľúčom má zmysel krátko skúsiť znova, môže to byť prechodný výkyv
-        const waitMs = 3000 * Math.pow(2, attempt);
-        statusMessage.textContent = `Google Books API ma na chvíľu pribrzdilo. Čakám ${Math.round(waitMs/1000)}s a skúšam znova…`;
-        await new Promise(res => setTimeout(res, waitMs));
-        return fetchBookDetails(title, author, originalTitle, attempt + 1, titleFallbackUsed);
-      }
-      // bez kľúča, alebo aj s kľúčom po pokusoch: limit je vyčerpaný, ďalšie skúšanie je zbytočné
+      // Retry tu nedáva zmysel: 429 na Books API takmer vždy znamená vyčerpanú
+      // dennú kvótu (resetuje sa raz za 24h), nie krátky prechodný výkyv, ktorý
+      // by pomohlo preriešiť čakanie v sekundách. Skúšanie znova len predlžuje
+      // čakanie pri každej knihe bez reálnej šance na úspech — rovno prejdeme
+      // na Wikidata fallback a nastavíme krátku pauzu pre ďalšie Books volania.
       rateLimitedUntil = Date.now() + 5 * 60000; // 5 min pauza, nech zbytočne nešpiníme konzolu
       if (!lastNetworkErrorShown) {
         lastNetworkErrorShown = true;
