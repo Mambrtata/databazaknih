@@ -471,6 +471,16 @@ async function fetchBookDetails(title, author, originalTitle, attempt = 0, title
   const searchTitle = useOriginal ? originalTitle.trim() : title;
 
   if (Date.now() < rateLimitedUntil) {
+    // Books API je v "pauze" po 429, ale Wikidata je samostatné API —
+    // skúsime aspoň to, namiesto úplného preskočenia tejto knihy.
+    const wd = await fetchCoverFromWikidata(searchTitle, author);
+    if (wd.coverUrl) {
+      return {
+        coverUrl: wd.coverUrl,
+        description: wd.description || 'Popis pre túto knihu nebol nájdený.',
+        networkError: false
+      };
+    }
     return { coverUrl: null, description: null, networkError: true, rateLimited: true };
   }
 
@@ -497,10 +507,24 @@ async function fetchBookDetails(title, author, originalTitle, attempt = 0, title
         lastNetworkErrorShown = true;
         showError(
           booksApiKey
-            ? 'Google Books API odmieta požiadavky aj s tvojím kľúčom (HTTP 429). Skús to znova o niekoľko minút.'
-            : 'Google Books API odmieta požiadavky bez kľúča (HTTP 429 — príliš veľa požiadaviek z tejto siete). Doplň vlastný Google API kľúč do panela vľavo („Google Books API kľúč“) — s ním je limit oveľa vyšší. Skús to potom znova kliknutím na „Detail“ pri knihe, alebo obnov stránku.'
+            ? 'Google Books API odmieta požiadavky aj s tvojím kľúčom (HTTP 429, denná kvóta je pravdepodobne vyčerpaná). Skúšam aspoň Wikidata, no tá pokryje len známejšie diela.'
+            : 'Google Books API odmieta požiadavky bez kľúča (HTTP 429 — príliš veľa požiadaviek z tejto siete). Doplň vlastný Google API kľúč do panela vľavo („Google Books API kľúč“) — s ním je limit oveľa vyšší. Skúšam aspoň Wikidata, no tá pokryje len známejšie diela.'
         );
       }
+      // Books API je vyčerpané, ale Wikidata je úplne samostatné API s vlastným
+      // limitom — skúsime aspoň to, namiesto úplného vzdania sa pre túto knihu.
+      const wdFallback = await fetchCoverFromWikidata(searchTitle, author);
+      if (wdFallback.coverUrl) {
+        // Wikidata niečo našla — výsledok je v poriadku uložiť natrvalo.
+        return {
+          coverUrl: wdFallback.coverUrl,
+          description: wdFallback.description || 'Popis pre túto knihu nebol nájdený.',
+          networkError: false
+        };
+      }
+      // Wikidata nič nenašla a Books API je vyčerpané — toto NEUKLADÁME ako
+      // finálny výsledok (zostane bez popisu/obalu), aby sa kniha po obnovení
+      // kvóty Books API zajtra skúsila znova, nie navždy ako "nenájdené".
       return { coverUrl: null, description: null, networkError: true, rateLimited: true };
     }
 
@@ -704,6 +728,7 @@ async function fetchAllMissingDetails() {
 
   showLoader(`Dopĺňam obaly pre ${missing.length} kníh… (0/${missing.length})`);
   let count = 0;
+  let rateLimitedCount = 0;
 
   for (const book of missing) {
     // znova over, či kniha medzitým nedostala obal (napr. cez klik na Detail alebo vlastné nahratie)
@@ -714,13 +739,13 @@ async function fetchAllMissingDetails() {
 
     if (details.networkError) {
       if (details.rateLimited) {
-        // Limit je vyčerpaný — nemá zmysel ďalej spamovať API, zastavíme dávku.
-        saveBooks();
-        filterAndRenderBooks();
-        showRetryButton();
-        return;
+        // Books API je vyčerpané a Wikidata pre túto knihu nič nenašla —
+        // preskočíme ju (skúsi sa znova nabudúce) a pokračujeme ďalšími,
+        // kde Wikidata ešte môže niečo nájsť. Books API sa medzitým
+        // automaticky "odpočíva" cez rateLimitedUntil vo fetchBookDetails.
+        rateLimitedCount++;
       }
-      // iná sieťová chyba (napr. file:// alebo výpadok) — skús ďalšiu knihu
+      // iná sieťová chyba (napr. file:// alebo výpadok, alebo rate-limit) — skús ďalšiu knihu
       continue;
     }
 
@@ -735,7 +760,14 @@ async function fetchAllMissingDetails() {
   }
   saveBooks();
   filterAndRenderBooks();
-  hideLoader();
+
+  if (rateLimitedCount > 0) {
+    showRetryButton();
+    statusMessage.textContent = '';
+    errorMessage.textContent = `Google Books API bolo vyčerpané pre ${rateLimitedCount} kníh (skúsené aspoň cez Wikidata, no tá pokrýva len známejšie diela). Skús to znova neskôr, alebo zajtra po obnovení dennej kvóty.`;
+  } else {
+    hideLoader();
+  }
 }
 
 // ============================================================
