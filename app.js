@@ -25,7 +25,18 @@ const GENRES = [
   "Naskenované z fotky"
 ];
 
-const STORAGE_KEY = "domaca_kniznica_books_v1";
+const STORAGE_KEY_BASE = "domaca_kniznica_books_v1";
+
+// localStorage kľúč MUSÍ byť viazaný na konkrétneho prihláseného používateľa —
+// inak by sa pri prepnutí medzi účtami v tom istom prehliadači krátko zobrazili
+// (a prípadne aj zapísali do cloudu druhého účtu) dáta predošlého používateľa.
+// Bez prihláseného používateľa (napr. počas úvodného načítavania pred auth)
+// použijeme spoločný "anon" kľúč, ktorý sa prakticky nikdy reálne nepoužije
+// na uloženie dát (appka v tomto stave nezobrazuje katalóg).
+function getStorageKey() {
+  const userId = currentUser?.id || 'anon';
+  return STORAGE_KEY_BASE + '_' + userId;
+}
 const API_KEY_STORAGE = "domaca_kniznica_gemini_key";
 const BOOKS_API_KEY_STORAGE = "domaca_kniznica_books_api_key";
 const LANGUAGE_STORAGE = "domaca_kniznica_language";
@@ -121,6 +132,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   sortSelect = document.getElementById('sortSelect'),
   bookCount = document.getElementById('bookCount'),
   ledgerCount = document.getElementById('ledgerCount'),
+  currentUserLabel = document.getElementById('currentUserLabel'),
   syncStatusEl = document.getElementById('syncStatus'),
   genreListContainer = document.getElementById('genreList'),
   bookModal = document.getElementById('bookModal'),
@@ -150,6 +162,8 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   missingCoversInfo = document.getElementById('missingCoversInfo'),
   bulkFindIsbnBtn = document.getElementById('bulkFindIsbnBtn'),
   missingIsbnInfo = document.getElementById('missingIsbnInfo'),
+  bulkFindMetaBtn = document.getElementById('bulkFindMetaBtn'),
+  missingMetaInfo = document.getElementById('missingMetaInfo'),
   customCoverUpload = document.getElementById('customCoverUpload'),
   modalCoverBtn = document.getElementById('modalCoverBtn'),
   modalTranslateBtn = document.getElementById('modalTranslateBtn'),
@@ -166,12 +180,18 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalGeminiSearchBtn = document.getElementById('modalGeminiSearchBtn'),
   modalScanIsbnBtn = document.getElementById('modalScanIsbnBtn'),
   modalIsbn = document.getElementById('modalIsbn'),
+  modalMeta = document.getElementById('modalMeta'),
   editTitleInput = document.getElementById('editTitle'),
   editOriginalTitleInput = document.getElementById('editOriginalTitle'),
   editAuthorInput = document.getElementById('editAuthor'),
   editIsbnInput = document.getElementById('editIsbn'),
+  editPublishYearInput = document.getElementById('editPublishYear'),
+  editPageCountInput = document.getElementById('editPageCount'),
   editGenreInput = document.getElementById('editGenre'),
   exportBtn = document.getElementById('exportBtn'),
+  migratePanel = document.getElementById('migratePanel'),
+  migrateLegacyBtn = document.getElementById('migrateLegacyBtn'),
+  migrateStatus = document.getElementById('migrateStatus'),
   publicToggle = document.getElementById('publicToggle'),
   publicLinkBox = document.getElementById('publicLinkBox'),
   publicLinkInput = document.getElementById('publicLinkInput'),
@@ -234,12 +254,18 @@ function updatePublicToggleUI() {
 // Pridá Authorization hlavičku s JWT tokenom prihláseného používateľa —
 // serverless funkcia (catalog.mjs) ho použije na oddelenie dát jednotlivých
 // účtov. Bez prihláseného používateľa vráti prázdny objekt (žiadna hlavička).
-function authHeaders() {
-  if (!currentUser) return {};
+// Vráti Authorization hlavičku s AKTUÁLNYM, platným JWT tokenom. Netlify
+// Identity tokeny expirujú po 1 hodine — currentUser.jwt() ho v prípade
+// potreby automaticky obnoví (refresh token), takže tu NIKDY nečítame
+// currentUser.token.access_token priamo (tá hodnota môže byť zastaraná
+// a server by zápis potichu odmietol s 401, čo vyzerá ako "neuložilo sa").
+async function authHeaders() {
+  if (!currentUser || !window.netlifyIdentity) return {};
   try {
-    const token = currentUser.token?.access_token;
+    const token = await currentUser.jwt();
     return token ? { Authorization: 'Bearer ' + token } : {};
   } catch (e) {
+    console.error('Nepodarilo sa obnoviť prihlasovací token:', e);
     return {};
   }
 }
@@ -259,7 +285,7 @@ function updateSyncStatusUI() {
 // bez čakania na sieť — používa sa pri starte, aby bolo UI hneď použiteľné.
 function loadLocalBooksOnly() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey());
     if (raw) {
       allBooks = JSON.parse(raw);
       backfillOriginalTitles();
@@ -285,15 +311,18 @@ async function loadBooks() {
   // Potom sa skúsime zosynchronizovať s cloudom — ak tam je novší/iný katalóg
   // (napr. pridaný z mobilu), nahradíme ním lokálnu kópiu.
   try {
-    const res = await fetch(CATALOG_API_URL, { headers: authHeaders() });
+    const res = await fetch(CATALOG_API_URL, { headers: await authHeaders() });
     if (res.ok) {
       const cloudData = await res.json();
       if (Array.isArray(cloudData.books) && cloudData.books.length > 0) {
         allBooks = cloudData.books;
-      } else if (allBooks.length > 0) {
-        // Cloud je prázdny, ale máme lokálne dáta (napr. úplne prvé spustenie) —
-        // nahrajeme ich do cloudu, nech sú dostupné aj z iných zariadení.
-        await syncToCloud();
+        migratePanel.style.display = 'none';
+      } else {
+        // Cloud (tento účet) je prázdny — skôr než tam automaticky nahráme
+        // predvolené dáta z data.js, ponúkneme možnosť priradiť prípadné
+        // staré dáta zo zdieľanej verzie appky (spred prihlasovania).
+        // Pridanie predvolených dát odložíme, kým sa používateľ nerozhodne.
+        if (migratePanel) migratePanel.style.display = 'block';
       }
       isPublicEnabled = !!cloudData.publicEnabled;
       updatePublicToggleUI();
@@ -307,7 +336,7 @@ async function loadBooks() {
     cloudSyncAvailable = false;
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(allBooks));
+  localStorage.setItem(getStorageKey(), JSON.stringify(allBooks));
   updateSyncStatusUI();
 }
 
@@ -555,7 +584,7 @@ importMergeBtn.addEventListener('click', () => {
 function saveBooks(immediate = false) {
   // Lokálnu kópiu ukladáme hneď a synchrónne — UI nesmie čakať na sieť.
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allBooks));
+    localStorage.setItem(getStorageKey(), JSON.stringify(allBooks));
   } catch (e) {
     console.error('Chyba pri ukladaní do localStorage:', e);
     showError('Pamäť prehliadača pre tento katalóg je plná (typicky pri veľkom množstve vlastných fotiek obalov). Skús zmenšiť počet vlastných fotiek, alebo si urob export katalógu a pokračuj v inom prehliadači.');
@@ -580,9 +609,10 @@ function saveBooks(immediate = false) {
 
 async function syncToCloud() {
   try {
+    const headers = await authHeaders();
     const res = await fetch(CATALOG_API_URL, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ books: allBooks, publicEnabled: isPublicEnabled })
     });
     if (!res.ok) {
@@ -782,6 +812,8 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
 
   let coverUrl = null;
   let description = null;
+  let publishYear = null;
+  let pageCount = null;
 
   // ---- 0) Open Library podľa ISBN — ak ho kniha má, je to najpresnejší
   // a najspoľahlivejší spôsob (jednoznačná identifikácia konkrétneho vydania,
@@ -793,10 +825,12 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
     sources.openLibraryIsbn = olIsbn.coverUrl ? 'found' : 'empty';
     if (olIsbn.coverUrl) coverUrl = olIsbn.coverUrl;
     if (olIsbn.description) description = olIsbn.description;
+    if (olIsbn.publishYear) publishYear = olIsbn.publishYear;
+    if (olIsbn.pageCount) pageCount = olIsbn.pageCount;
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
   }
 
   // ---- 1) Open Library — skúšame ako prvú, nemá denný limit požiadaviek ----
@@ -805,10 +839,12 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
     sources.openLibrary = ol.coverUrl ? 'found' : 'empty';
     if (ol.coverUrl) coverUrl = ol.coverUrl;
     if (ol.description) description = ol.description;
+    if (ol.publishYear) publishYear = ol.publishYear;
+    if (ol.pageCount) pageCount = ol.pageCount;
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
   }
 
   // ---- 2) Google Books — druhý zdroj, má denný limit (najmä bez vlastného kľúča) ----
@@ -861,6 +897,11 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
         sources.googleBooks = foundCover ? 'found' : 'empty';
         if (foundCover) coverUrl = foundCover;
         if (matches && bookResult?.description) description = bookResult.description;
+        if (matches && bookResult?.publishedDate) {
+          const yearMatch = bookResult.publishedDate.match(/\d{4}/);
+          if (yearMatch) publishYear = parseInt(yearMatch[0], 10);
+        }
+        if (matches && bookResult?.pageCount) pageCount = bookResult.pageCount;
       } else {
         sources.googleBooks = 'empty';
       }
@@ -872,7 +913,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
   }
 
   // Ak sme hľadali podľa originálneho/EN názvu a nič sme nenašli, skúsime ešte
@@ -884,6 +925,8 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
     if (!description && fallback.description && fallback.description !== 'Popis pre túto knihu nebol nájdený.') {
       description = fallback.description;
     }
+    if (!publishYear && fallback.publishYear) publishYear = fallback.publishYear;
+    if (!pageCount && fallback.pageCount) pageCount = fallback.pageCount;
   }
 
   // ---- 3) Wikidata — posledný fallback pre veľmi známe diela ----
@@ -897,12 +940,14 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   // Ak Books API bolo rate-limited a nič iné nenašlo obal, nepovažujeme
   // toto za finálny výsledok — nech sa kniha skúsi znova, keď bude kvóta voľná.
   if (!coverUrl && sources.googleBooksRateLimited) {
-    return { coverUrl: null, description, networkError: true, rateLimited: true, sources };
+    return { coverUrl: null, description, publishYear, pageCount, networkError: true, rateLimited: true, sources };
   }
 
   return {
     coverUrl: coverUrl,
     description: description || 'Popis pre túto knihu nebol nájdený.',
+    publishYear,
+    pageCount,
     networkError: false,
     sources
   };
@@ -934,9 +979,9 @@ let openLibraryRateLimitedUntil = 0;
 // identifikuje konkrétne vydanie knihy. Používa sa ako prioritný spôsob, keď
 // má kniha vyplnené ISBN.
 async function fetchFromOpenLibraryByIsbn(isbn) {
-  if (!isbn) return { coverUrl: null, description: null };
+  if (!isbn) return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
   if (Date.now() < openLibraryRateLimitedUntil) {
-    return { coverUrl: null, description: null };
+    return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
   }
   try {
     const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
@@ -944,22 +989,30 @@ async function fetchFromOpenLibraryByIsbn(isbn) {
 
     if (res.status === 429) {
       openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
-      return { coverUrl: null, description: null };
+      return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
     }
-    if (!res.ok) return { coverUrl: null, description: null };
+    if (!res.ok) return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
 
     const data = await res.json();
     const book = data['ISBN:' + isbn];
-    if (!book) return { coverUrl: null, description: null };
+    if (!book) return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
 
     const coverUrl = book.cover?.large || book.cover?.medium || null;
     let description = null;
     if (typeof book.notes === 'string') description = book.notes;
     else if (book.excerpts?.[0]?.text) description = book.excerpts[0].text;
 
-    return { coverUrl, description };
+    // publish_date je voľný text (napr. "1958", "March 1999") — vytiahneme
+    // z neho len 4-miestny rok, nech sa dá jednotne zobraziť a triediť.
+    const yearMatch = (book.publish_date || '').match(/\d{4}/);
+    const publishYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+    const pageCount = book.number_of_pages || null;
+    // languages je pole objektov typu { key: "/l/eng" } — vytiahneme 3-písmenový kód.
+    const language = book.languages?.[0]?.key?.split('/').pop() || null;
+
+    return { coverUrl, description, publishYear, pageCount, language };
   } catch (error) {
-    return { coverUrl: null, description: null };
+    return { coverUrl: null, description: null, publishYear: null, pageCount: null, language: null };
   }
 }
 
@@ -995,20 +1048,51 @@ async function findIsbnByTitle(title, author) {
   }
 }
 
+// Skúsi dohľadať rok vydania a počet strán podľa názvu a autora (fulltextové
+// vyhľadávanie na Open Library) — pre knihy, ktoré tieto údaje ešte nemajú.
+async function findMetaByTitle(title, author) {
+  if (Date.now() < openLibraryRateLimitedUntil) return { publishYear: null, pageCount: null };
+  try {
+    const query = `${title}${author ? ' ' + author : ''}`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,first_publish_year,number_of_pages_median&limit=3`;
+    const res = await fetchWithTimeout(url, 6000);
+    if (res.status === 429) {
+      openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
+      return { publishYear: null, pageCount: null };
+    }
+    if (!res.ok) return { publishYear: null, pageCount: null };
+
+    const data = await res.json();
+    const docs = data.docs || [];
+    for (const doc of docs) {
+      if (author && doc.author_name && !authorMatches(author, doc.author_name)) continue;
+      if (doc.first_publish_year || doc.number_of_pages_median) {
+        return {
+          publishYear: doc.first_publish_year || null,
+          pageCount: doc.number_of_pages_median || null
+        };
+      }
+    }
+    return { publishYear: null, pageCount: null };
+  } catch (e) {
+    return { publishYear: null, pageCount: null };
+  }
+}
+
 async function fetchFromOpenLibrary(title, author) {
   if (Date.now() < openLibraryRateLimitedUntil) {
-    return { coverUrl: null, description: null };
+    return { coverUrl: null, description: null, publishYear: null, pageCount: null };
   }
   try {
     const query = `${title}${author ? ' ' + author : ''}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,key,first_sentence&limit=3`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,key,first_sentence,first_publish_year,number_of_pages_median&limit=3`;
     const res = await fetchWithTimeout(url, 6000);
 
     if (res.status === 429) {
       openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
-      return { coverUrl: null, description: null };
+      return { coverUrl: null, description: null, publishYear: null, pageCount: null };
     }
-    if (!res.ok) return { coverUrl: null, description: null };
+    if (!res.ok) return { coverUrl: null, description: null, publishYear: null, pageCount: null };
 
     const data = await res.json();
     const docs = data.docs || [];
@@ -1020,6 +1104,8 @@ async function fetchFromOpenLibrary(title, author) {
       if (!doc.cover_i) continue;
 
       const coverUrl = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+      const publishYear = doc.first_publish_year || null;
+      const pageCount = doc.number_of_pages_median || null;
 
       // "first_sentence" je len úvodná veta textu, nie skutočný popis/anotácia —
       // tú treba dotiahnuť samostatne z /works/{key}.json (pole "description").
@@ -1043,12 +1129,12 @@ async function fetchFromOpenLibrary(title, author) {
           : (doc.first_sentence || null);
       }
 
-      return { coverUrl, description };
+      return { coverUrl, description, publishYear, pageCount };
     }
-    return { coverUrl: null, description: null };
+    return { coverUrl: null, description: null, publishYear: null, pageCount: null };
   } catch (error) {
     // Timeout alebo iná sieťová chyba — ticho preskočíme na ďalší zdroj.
-    return { coverUrl: null, description: null };
+    return { coverUrl: null, description: null, publishYear: null, pageCount: null };
   }
 }
 
@@ -1165,10 +1251,12 @@ async function addBook(title, author, genre, originalTitle, skipDetails, isbn) {
 
   if (!skipDetails) {
     showLoader(`Hľadám obal a popis pre „${newBook.title}“…`);
-    const { coverUrl, description, networkError, sources } = await fetchBookDetails(newBook.title, newBook.author, newBook.originalTitle, newBook, getEnabledSources());
+    const { coverUrl, description, publishYear, pageCount, networkError, sources } = await fetchBookDetails(newBook.title, newBook.author, newBook.originalTitle, newBook, getEnabledSources());
     if (!networkError) {
       newBook.coverUrl = coverUrl;
       newBook.description = description;
+      if (publishYear) newBook.publishYear = publishYear;
+      if (pageCount) newBook.pageCount = pageCount;
       const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
       if (apiKey && descriptionLooksForeign(newBook.description)) {
         const translated = await translateDescription(newBook);
@@ -1201,6 +1289,7 @@ function updateFetchMissingButtonLabel() {
     fetchMissingBtn.disabled = false;
   }
   updateMissingIsbnInfo();
+  updateMissingMetaInfo();
 }
 
 function updateMissingIsbnInfo() {
@@ -1244,6 +1333,7 @@ async function bulkFindIsbn() {
       if (isbn) {
         book.isbn = isbn;
         book.isbnSource = 'searched';
+        book.isbnVerified = false; // dohľadané podľa názvu — nikdy automaticky "potvrdené"
         foundCount++;
         if (foundCount % 8 === 0) saveBooks();
       }
@@ -1261,6 +1351,64 @@ async function bulkFindIsbn() {
     bulkIsbnInProgress = false;
     bulkFindIsbnBtn.disabled = false;
     updateMissingIsbnInfo();
+  }
+}
+
+function updateMissingMetaInfo() {
+  if (!missingMetaInfo) return;
+  const missingCount = allBooks.filter(b => !b.publishYear && !b.pageCount).length;
+  if (missingCount === 0) {
+    missingMetaInfo.textContent = 'Všetky knihy v katalógu už majú rok vydania alebo počet strán.';
+    bulkFindMetaBtn.disabled = true;
+  } else {
+    missingMetaInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} rok vydania ani počet strán. Pre staré/menej známe vydania sa nemusí podariť nájsť oboje.`;
+    bulkFindMetaBtn.disabled = false;
+  }
+}
+
+// Hromadne skúsi dohľadať rok vydania a počet strán pre knihy, ktoré
+// ani jeden z týchto údajov ešte nemajú — podľa názvu a autora.
+let bulkMetaInProgress = false;
+
+async function bulkFindMeta() {
+  const missing = allBooks.filter(b => !b.publishYear && !b.pageCount);
+  if (missing.length === 0 || bulkMetaInProgress) return;
+
+  bulkMetaInProgress = true;
+  bulkFindMetaBtn.disabled = true;
+  showScanOverlay('Hľadám rok a počet strán', `0 z ${missing.length} skontrolovaných`);
+
+  let foundCount = 0;
+  let processed = 0;
+
+  try {
+    for (const book of missing) {
+      if (book.publishYear || book.pageCount) { processed++; continue; }
+
+      await new Promise(res => setTimeout(res, 1000));
+      const meta = await findMetaByTitle(book.originalTitle || book.title, book.author);
+      processed++;
+
+      if (meta.publishYear || meta.pageCount) {
+        if (meta.publishYear) book.publishYear = meta.publishYear;
+        if (meta.pageCount) book.pageCount = meta.pageCount;
+        foundCount++;
+        if (foundCount % 8 === 0) saveBooks();
+      }
+      updateScanOverlay(`${processed} z ${missing.length} skontrolovaných, ${foundCount} nájdených`);
+    }
+    saveBooks(true);
+    filterAndRenderBooks();
+    hideScanOverlay();
+    if (foundCount > 0) {
+      showToast(`Dohľadané údaje pre ${foundCount} z ${missing.length} kníh.`, 'success', 6000);
+    } else {
+      showToast('Pre žiadnu z kníh sa nepodarilo dohľadať rok ani počet strán.', 'info');
+    }
+  } finally {
+    bulkMetaInProgress = false;
+    bulkFindMetaBtn.disabled = false;
+    updateMissingMetaInfo();
   }
 }
 
@@ -1459,6 +1607,8 @@ async function fetchAllMissingDetails() {
 
       book.coverUrl = details.coverUrl;
       book.description = details.description;
+      if (details.publishYear) book.publishYear = details.publishYear;
+      if (details.pageCount) book.pageCount = details.pageCount;
 
       // Automatický preklad — ak nový popis vyzerá byť v inom jazyku než
       // zvolený default, rovno ho preložíme (namiesto čakania, kým si to
@@ -1531,7 +1681,7 @@ function filterAndRenderBooks() {
     );
   }
   toDisplay = sortBooks(toDisplay, sortSelect.value);
-  renderBooks(toDisplay);
+  renderBooks(toDisplay, sortSelect.value);
 }
 
 // Zoradí kópiu poľa kníh podľa zvoleného kritéria. Triedenie sa aplikuje
@@ -1574,7 +1724,7 @@ function renderSidebar() {
   genreListContainer.innerHTML = html;
 }
 
-function renderBooks(booksToRender) {
+function renderBooks(booksToRender, sortKey) {
   bookList.innerHTML = '';
   bookCount.textContent = allBooks.length;
 
@@ -1589,6 +1739,22 @@ function renderBooks(booksToRender) {
     return;
   }
   emptyState.style.display = 'none';
+
+  // Pri "Všetky kategórie" so zvoleným triedením, ktoré nie je "Názov A-Z"
+  // (napr. "Najnovšie pridané"), zoznam zámerne NEROZDEĽUJEME na žánrové
+  // sekcie — používateľ chce vidieť napr. naozaj najnovšie pridanú knihu
+  // ako prvú v celom katalógu, nie len prvú v rámci jej žánrovej sekcie.
+  // Pri "Názov A-Z" žánrové sekcie ostávajú, lebo s abecedným triedením
+  // prirodzene pôsobia ako prehľadné zoskupenie, nie ako prekážka.
+  const showFlatList = selectedGenre === 'Všetky' && sortKey && sortKey !== 'title-asc';
+
+  if (showFlatList) {
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    booksToRender.forEach(b => grid.appendChild(createBookElement(b)));
+    bookList.appendChild(grid);
+    return;
+  }
 
   const byGenre = booksToRender.reduce((acc, b) => {
     const g = b.genre || 'Nezaradené';
@@ -1645,6 +1811,7 @@ function createBookElement(book) {
     <div class="book-body">
       <p class="book-title" title="${escapeHtml(book.title)}">${escapeHtml(book.title)}</p>
       <p class="book-author">${escapeHtml(book.author) || 'Neznámy autor'}</p>
+      ${(book.publishYear || book.pageCount) ? `<p class="book-meta">${[book.publishYear, book.pageCount ? book.pageCount + ' s.' : null].filter(Boolean).join(' · ')}</p>` : ''}
     </div>`;
   return el;
 }
@@ -1695,6 +1862,7 @@ async function handleDetailClick(bookId) {
   modalAuthor.textContent = book.author || 'Neznámy autor';
   modalGenre.textContent = book.genre || 'Nezaradené';
   updateModalIsbnDisplay(book);
+  updateModalMetaDisplay(book);
 
   bookModal.classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -1721,6 +1889,8 @@ async function handleDetailClick(bookId) {
       if (!details.networkError) {
         if (!book.coverUrl) book.coverUrl = details.coverUrl; // nepreписuj vlastný/už nájdený obal
         book.description = details.description;
+        if (details.publishYear) book.publishYear = details.publishYear;
+        if (details.pageCount) book.pageCount = details.pageCount;
         saveBooks(true);
         filterAndRenderBooks();
       }
@@ -1774,17 +1944,64 @@ function normalizeIsbn(raw) {
 }
 
 function updateModalIsbnDisplay(book) {
-  if (book.isbn) {
-    const isCertain = book.isbnSource === 'scanned' || book.isbnSource === 'manual';
-    const dotColor = isCertain ? '#3F8F5C' : '#D9A441';
-    const title = isCertain
-      ? 'Odfotené/zadané ručne — isté'
-      : 'Dohľadané podľa názvu — over si to';
-    modalIsbn.innerHTML = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${dotColor}; margin-right:5px;" title="${title}"></span>ISBN ${escapeHtml(book.isbn)}`;
-    modalIsbn.style.display = 'inline-flex';
-    modalIsbn.style.alignItems = 'center';
-  } else {
+  if (!book.isbn) {
     modalIsbn.style.display = 'none';
+    return;
+  }
+  // ISBN samotné: zelená pre naskenované/ručne zadané (o číslach niet pochýb,
+  // bolo fyzicky odčítané), oranžová len pre fulltextovo dohľadané (skutočne
+  // neisté — môže patriť úplne inej knihe s podobným názvom).
+  const isCertainIsbn = book.isbnSource === 'scanned' || book.isbnSource === 'manual';
+  const dotColor = isCertainIsbn ? '#3F8F5C' : '#D9A441';
+  const dotTitle = isCertainIsbn
+    ? 'ISBN odfotené/zadané ručne — isté'
+    : 'ISBN dohľadané podľa názvu — over si to, môže patriť inej knihe';
+
+  let html = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${dotColor}; margin-right:5px;" title="${dotTitle}"></span>ISBN ${escapeHtml(book.isbn)}`;
+
+  // Aj keď je samotné ISBN isté, vydanie (rok/jazyk) nemusí byť potvrdené —
+  // napr. kniha mala iný rok zapísaný a toto ISBN vrátilo iný rok. V tom
+  // prípade zobrazíme jasné textové upozornenie, nech sa to nedá prehliadnuť.
+  if (isCertainIsbn && book.isbnVerified === false) {
+    html += ` <span style="color:#9A6A14; font-weight:600;" title="Rok vydania, ktorý appka pre knihu mala, sa nezhoduje s rokom podľa tohto ISBN — môže ísť o iné vydanie.">⚠️ vydanie nepotvrdené</span>`;
+  }
+
+  modalIsbn.innerHTML = html;
+  modalIsbn.style.display = 'inline-flex';
+  modalIsbn.style.alignItems = 'center';
+}
+
+// Open Library aj Google Books vracajú jazyk ako ISO kód (rôzne dĺžky/varianty
+// podľa zdroja) — táto mapa pokrýva najbežnejšie jazyky, ktoré sa v knižnici
+// pravdepodobne vyskytnú, pre čitateľné zobrazenie namiesto holého kódu.
+const LANGUAGE_CODE_LABELS = {
+  slo: 'slovenčina', sk: 'slovenčina',
+  cze: 'čeština', cs: 'čeština', cz: 'čeština',
+  eng: 'angličtina', en: 'angličtina',
+  ger: 'nemčina', de: 'nemčina',
+  fre: 'francúzština', fr: 'francúzština',
+  spa: 'španielčina', es: 'španielčina',
+  ita: 'taliančina', it: 'taliančina',
+  rus: 'ruština', ru: 'ruština',
+  pol: 'poľština', pl: 'poľština',
+  hun: 'maďarčina', hu: 'maďarčina',
+};
+function languageLabel(code) {
+  if (!code) return null;
+  return LANGUAGE_CODE_LABELS[code.toLowerCase()] || code;
+}
+
+function updateModalMetaDisplay(book) {
+  const parts = [
+    book.publishYear,
+    book.pageCount ? book.pageCount + ' strán' : null,
+    book.language ? languageLabel(book.language) : null
+  ].filter(Boolean);
+  if (parts.length > 0) {
+    modalMeta.textContent = parts.join(' · ');
+    modalMeta.style.display = 'inline';
+  } else {
+    modalMeta.style.display = 'none';
   }
 }
 
@@ -1796,6 +2013,8 @@ function enterEditMode() {
   editOriginalTitleInput.value = book.originalTitle || '';
   editAuthorInput.value = book.author || '';
   editIsbnInput.value = book.isbn || '';
+  editPublishYearInput.value = book.publishYear || '';
+  editPageCountInput.value = book.pageCount || '';
   editGenreInput.innerHTML = GENRES.map(g =>
     `<option value="${escapeHtml(g)}" ${g === book.genre ? 'selected' : ''}>${escapeHtml(g)}</option>`
   ).join('');
@@ -1814,7 +2033,7 @@ function exitEditMode() {
   modalEditActions.style.display = 'none';
 }
 
-function saveEditedBook() {
+async function saveEditedBook() {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
 
@@ -1833,8 +2052,13 @@ function saveEditedBook() {
   book.author = editAuthorInput.value.trim();
   book.originalTitle = editOriginalTitleInput.value.trim();
   book.isbn = normalizeIsbn(editIsbnInput.value);
-  if (isbnChanged) book.isbnSource = book.isbn ? 'manual' : null;
+  if (isbnChanged) {
+    book.isbnSource = book.isbn ? 'manual' : null;
+    book.isbnVerified = null; // overíme nižšie, ak je nové ISBN vyplnené
+  }
   book.genre = editGenreInput.value;
+  book.publishYear = editPublishYearInput.value ? parseInt(editPublishYearInput.value, 10) : null;
+  book.pageCount = editPageCountInput.value ? parseInt(editPageCountInput.value, 10) : null;
 
   // Ak sa zmenil názov, autor, originálny názov alebo ISBN, predošlý obal/popis
   // už nemusí sedieť — zresetujeme ich, aby sa pri ďalšom otvorení/rescane
@@ -1843,6 +2067,15 @@ function saveEditedBook() {
     book.coverUrl = null;
     book.description = null;
     book.sourcesTried = {};
+  }
+
+  // Ak bolo ručne zadané nové ISBN, overíme ho rovnako ako pri skene —
+  // porovnáme rok, ktorý appka pre knihu už mala, s rokom podľa tohto ISBN.
+  if (isbnChanged && book.isbn) {
+    const meta = await lookupBookByIsbn(book.isbn);
+    book.isbnVerified = isbnYearMatches(book, meta.publishYear);
+    if (meta.language && !book.language) book.language = meta.language;
+    if (!book.publishYear && meta.publishYear) book.publishYear = meta.publishYear;
   }
 
   saveBooks(true);
@@ -1860,6 +2093,7 @@ function saveEditedBook() {
   modalAuthor.textContent = book.author || 'Neznámy autor';
   modalGenre.textContent = book.genre || 'Nezaradené';
   updateModalIsbnDisplay(book);
+  updateModalMetaDisplay(book);
 
   if (!book.coverUrl) {
     rescanFromModal();
@@ -1889,6 +2123,8 @@ async function rescanFromModal() {
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
+      if (details.publishYear) book.publishYear = details.publishYear;
+      if (details.pageCount) book.pageCount = details.pageCount;
       saveBooks(true);
       filterAndRenderBooks();
     }
@@ -2268,8 +2504,18 @@ async function analyzeIsbnImage(base64ImageData) {
 // a rovno pridá novú knihu do katalógu.
 // Vyhľadá názov/autora/obal/popis podľa ISBN — Open Library ako prvé
 // (presné, žiadny denný limit), Google Books ako záložný zdroj.
+// Porovná rok vydania, ktorý kniha už má (ak nejaký), s rokom vráteným
+// pri vyhľadaní podľa ISBN — slúži na rozlíšenie "ISBN je isté, ALE
+// nevieme potvrdiť, že ide o presne toto vydanie" od "ISBN aj vydanie
+// sedí". Vracia true ak nemáme oba roky na porovnanie (nie je s čím byť
+// v rozpore), alebo ak sa zhodujú; false len ak oba existujú a nesedia.
+function isbnYearMatches(book, newPublishYear) {
+  if (!book.publishYear || !newPublishYear) return true;
+  return book.publishYear === newPublishYear;
+}
+
 async function lookupBookByIsbn(isbn) {
-  let title = null, author = null, coverUrl = null, description = null;
+  let title = null, author = null, coverUrl = null, description = null, publishYear = null, pageCount = null, language = null;
 
   try {
     const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
@@ -2282,6 +2528,10 @@ async function lookupBookByIsbn(isbn) {
         author = (book.authors || []).map(a => a.name).join(' / ') || null;
         coverUrl = book.cover?.large || book.cover?.medium || null;
         description = typeof book.notes === 'string' ? book.notes : (book.excerpts?.[0]?.text || null);
+        const yearMatch = (book.publish_date || '').match(/\d{4}/);
+        publishYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+        pageCount = book.number_of_pages || null;
+        language = book.languages?.[0]?.key?.split('/').pop() || null;
       }
     }
   } catch (e) {
@@ -2302,6 +2552,12 @@ async function lookupBookByIsbn(isbn) {
           author = (info.authors || []).join(' / ') || null;
           if (!coverUrl) coverUrl = info.imageLinks?.thumbnail || null;
           if (!description) description = info.description || null;
+          if (!publishYear) {
+            const yearMatch = (info.publishedDate || '').match(/\d{4}/);
+            publishYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+          }
+          if (!pageCount) pageCount = info.pageCount || null;
+          if (!language) language = info.language || null;
         }
       }
     } catch (e) {
@@ -2309,7 +2565,7 @@ async function lookupBookByIsbn(isbn) {
     }
   }
 
-  return { title, author, coverUrl, description };
+  return { title, author, coverUrl, description, publishYear, pageCount, language };
 }
 
 // Pridá novú knihu rovno podľa ISBN (bez fotky, napr. z live skenu) —
@@ -2318,7 +2574,7 @@ async function addBookFromIsbn(isbn) {
   showScanOverlay('Hľadám knihu', `ISBN ${isbn}`);
 
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
-  let { title, author, coverUrl, description } = await lookupBookByIsbn(isbn);
+  let { title, author, coverUrl, description, publishYear, pageCount, language } = await lookupBookByIsbn(isbn);
 
   if (apiKey && description && descriptionLooksForeign(description)) {
     const translated = await translateDescription({ title: title || isbn, author, description });
@@ -2332,6 +2588,20 @@ async function addBookFromIsbn(isbn) {
     return;
   }
 
+  // Skontrolujeme, či kniha s týmto ISBN (alebo rovnakým názvom+autorom)
+  // už v katalógu nie je — predídeme tak nechcenej duplicite pri skene.
+  const duplicate = findDuplicateBook({ title: title.trim(), author: (author || '').trim(), isbn });
+  if (duplicate) {
+    const proceed = confirm(
+      `Kniha „${duplicate.title}“${duplicate.author ? ' (' + duplicate.author + ')' : ''} už v knižnici je.\n\n` +
+      `OK = pridať aj tak (napr. máš viac kópií)\nZrušiť = nepridávať`
+    );
+    if (!proceed) {
+      showToast('Pridanie zrušené — kniha už v knižnici existuje.', 'info', 4000);
+      return;
+    }
+  }
+
   const newBook = {
     id: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     title: title.trim(),
@@ -2340,8 +2610,12 @@ async function addBookFromIsbn(isbn) {
     originalTitle: '',
     isbn: isbn,
     isbnSource: 'scanned',
+    isbnVerified: true, // nová kniha — žiadny predošlý rok na porovnanie, nie je s čím byť v rozpore
     coverUrl: coverUrl || null,
     description: description || null,
+    publishYear: publishYear || null,
+    pageCount: pageCount || null,
+    language: language || null,
     sourcesTried: { openLibraryIsbn: coverUrl ? 'found' : 'empty' },
     createdAt: Date.now()
   };
@@ -2459,6 +2733,8 @@ async function rescanBook(bookId, buttonEl) {
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
+      if (details.publishYear) book.publishYear = details.publishYear;
+      if (details.pageCount) book.pageCount = details.pageCount;
       saveBooks(true);
     } else {
       showError('Nepodarilo sa znova vyhľadať túto knihu — skontroluj pripojenie alebo to skús neskôr.');
@@ -2562,23 +2838,34 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
 // obalu/popisu podľa neho (presnejšie než predošlé fulltextové vyhľadávanie).
 async function assignIsbnToBook(book, isbn) {
   book.isbn = isbn;
-  book.isbnSource = 'scanned';
+  book.isbnSource = 'scanned'; // ISBN samotné je isté — bolo fyzicky odčítané, o tom niet pochýb
   // Nové ISBN — predošlý obal/popis (ak vznikol z menej presného fulltextového
   // vyhľadávania) môže byť nahradený presnejším výsledkom podľa ISBN.
   if (!book.customCover) {
     book.sourcesTried = {};
   }
   saveBooks(true);
-  if (currentModalBookId === book.id) updateModalIsbnDisplay(book);
+  if (currentModalBookId === book.id) { updateModalIsbnDisplay(book); updateModalMetaDisplay(book); }
   filterAndRenderBooks();
   statusMessage.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám obal a popis…`;
+
+  // Overenie vydania: porovnáme rok, ktorý kniha už mala (ak nejaký), s rokom
+  // vráteným pre toto konkrétne ISBN. Ak nesedia, ISBN zostáva isté (zelené),
+  // ale appka na to upozorní — možno ide o iné vydanie než to, čo držíš v ruke.
+  const meta = await lookupBookByIsbn(isbn);
+  book.isbnVerified = isbnYearMatches(book, meta.publishYear);
+  if (meta.language) book.language = meta.language;
+
   if (currentModalBookId === book.id) {
     await rescanFromModal();
+    updateModalIsbnDisplay(book);
   } else {
     const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book, { openLibrary: true, googleBooks: true, wikidata: true });
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
+      if (details.publishYear) book.publishYear = details.publishYear;
+      if (details.pageCount) book.pageCount = details.pageCount;
       saveBooks(true);
       filterAndRenderBooks();
     }
@@ -2664,6 +2951,7 @@ fetchMissingBtn.addEventListener('click', () => {
 });
 
 bulkFindIsbnBtn.addEventListener('click', bulkFindIsbn);
+bulkFindMetaBtn.addEventListener('click', bulkFindMeta);
 
 stopFetchBtn.addEventListener('click', () => {
   fetchShouldStop = true;
@@ -2677,6 +2965,39 @@ stopFetchBtn.addEventListener('click', () => {
 
 exportBtn.addEventListener('click', exportCatalog);
 exportCsvBtn.addEventListener('click', exportCatalogCsv);
+
+migrateLegacyBtn.addEventListener('click', async () => {
+  migrateLegacyBtn.disabled = true;
+  migrateLegacyBtn.textContent = '… prenášam';
+  migrateStatus.textContent = '';
+
+  try {
+    const res = await fetch('/.netlify/functions/migrate-legacy', {
+      method: 'POST',
+      headers: await authHeaders()
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      migrateStatus.textContent = data.error || 'Migrácia zlyhala.';
+      migrateStatus.className = 'api-status bad';
+      migrateLegacyBtn.disabled = false;
+      migrateLegacyBtn.textContent = '📦 Priradiť staré dáta k môjmu účtu';
+      return;
+    }
+
+    showToast(`Prenesených ${data.bookCount} kníh do tvojho účtu.`, 'success', 6000);
+    migratePanel.style.display = 'none';
+    await loadBooks();
+    filterAndRenderBooks();
+  } catch (error) {
+    console.error('Chyba pri migrácii:', error);
+    migrateStatus.textContent = 'Nepodarilo sa spojiť so serverom. Skús to znova.';
+    migrateStatus.className = 'api-status bad';
+    migrateLegacyBtn.disabled = false;
+    migrateLegacyBtn.textContent = '📦 Priradiť staré dáta k môjmu účtu';
+  }
+});
 
 publicToggle.addEventListener('change', () => {
   isPublicEnabled = publicToggle.checked;
@@ -2754,6 +3075,7 @@ let appInitialized = false;
 
 function showApp(user) {
   currentUser = user;
+  if (currentUserLabel) currentUserLabel.textContent = user?.email || '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appRoot').style.display = 'block';
   if (!appInitialized) {
@@ -2761,13 +3083,18 @@ function showApp(user) {
     init();
   } else {
     // Používateľ sa prepol (napr. odhlásil a prihlásil ako niekto iný) —
-    // znova načítame jeho vlastný katalóg namiesto pokračovania s predošlým.
+    // okamžite vymeníme zobrazené dáta za lokálnu cache NOVÉHO používateľa
+    // (getStorageKey() teraz vracia iný kľúč), aby sa čo i len na okamih
+    // nezobrazili dáta predošlého účtu, kým čakáme na odpoveď z cloudu.
+    loadLocalBooksOnly();
+    filterAndRenderBooks();
     loadBooks().then(filterAndRenderBooks);
   }
 }
 
 function showLogin() {
   currentUser = null;
+  if (currentUserLabel) currentUserLabel.textContent = '';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('appRoot').style.display = 'none';
 }
@@ -2798,6 +3125,15 @@ function setupAuth() {
   identity.on('init', (user) => {
     if (user) showApp(user);
     else showLogin();
+    // Ak URL obsahuje invite/recovery/confirmation token (napr. z pozývacieho
+    // emailu — "#invite_token=...", "#recovery_token=...", "#confirmation_token=..."),
+    // widget ho síce zachytí sám, ale modal s formulárom na nastavenie hesla
+    // sa bez explicitného volania open() nezobrazí automaticky. Bez tohto by
+    // používateľ pri kliknutí na odkaz z emailu videl len bežný "Log in"
+    // formulár — heslo si pritom ešte nikdy nenastavil.
+    if (/(invite_token|recovery_token|confirmation_token)=/.test(location.hash)) {
+      identity.open();
+    }
   });
 
   identity.on('login', (user) => {

@@ -100,6 +100,47 @@ zmeny sa neuložia do zdieľaného cloud úložiska.
 
 ## Nové v tejto verzii
 
+- **Samostatná stránka Nastavenia** (`nastavenia.html`) — API kľúče, jazyk
+  knižnice, zdieľanie knižnice, záloha (export/import) sú presunuté sem
+  z preplneného bočného panela. Dostupná cez tlačidlo "⚙️ Nastavenia"
+  v ľavom paneli hlavnej stránky.
+- **Zmazať všetky knihy** — v Nastaveniach, v sekcii "⚠️ Nebezpečná zóna".
+  Vymaže celý katalóg, účet a prihlásenie zostávajú zachované.
+- **Zmazať účet** — úplné a nezvratné zmazanie účtu vrátane prihlasovacích
+  údajov aj všetkých kníh (cez novú funkciu `delete-account.mjs`).
+- Obe nebezpečné akcie vyžadujú napísanie presného potvrdzovacieho slova,
+  nech sa nedajú spustiť omylom jedným kliknutím.
+
+- **Opravený bug: krížová kontaminácia dát medzi účtami** — `localStorage`
+  kľúč je teraz viazaný na konkrétneho prihláseného používateľa. Predtým
+  sa pri prepnutí medzi účtami v tom istom prehliadači mohli krátko
+  zobraziť (a nechtiac aj uložiť) dáta predošlého účtu.
+- **Zobrazenie prihláseného používateľa** — email vidno v pravom hornom
+  rohu vedľa indikátora synchronizácie.
+- **Kontrola duplicít pri skene ISBN** — ak kniha s rovnakým ISBN alebo
+  názvom+autorom už v katalógu je, appka sa pred pridaním opýta.
+- **Prehľadnejší detail knihy** — "📷 Nahrať obal" je teraz dostupné len
+  v edit móde (po kliknutí "Upraviť"), všetky tlačidlá menšie.
+- **Triedenie naprieč celým katalógom** — pri "Všetky kategórie" so
+  zvoleným triedením iným než "Názov A-Z" (napr. "Najnovšie pridané")
+  appka zobrazí jeden plynulý zoznam namiesto rozdelenia na žánrové
+  sekcie — skutočne najnovšia kniha v celom katalógu je prvá.
+- **Rok vydania a počet strán** — nové polia, automaticky sa dopĺňajú
+  pri vyhľadávaní (Open Library aj Google Books), zobrazujú sa na
+  kartách aj v detaile, dajú sa upraviť ručne, a nový panel "📅 Dohľadať
+  rok vydania a počet strán" umožňuje hromadne dohľadať tieto údaje
+  pre existujúce knihy v katalógu (podobne ako pri ISBN).
+- **Favicon** pridaný (ikonka v záložke prehliadača).
+
+## Predošlé funkcie (z minulého balíka)
+
+- Prihlásenie (Netlify Identity), per-user katalógy
+- Verejný náhľad knižnice (read-only zdieľateľný odkaz)
+- Jazyk knižnice + automatický preklad popisov
+- Živý sken ISBN čiarového kódu (s fallbackom pre Safari/iPhone)
+- Oprava: obnovenie exspirovaného prihlasovacieho tokenu
+- Oprava: spracovanie invite/recovery odkazov z emailu
+
 - **Jazyk knižnice** — v ľavom paneli si zvolíš default jazyk (slovenčina,
   čeština, angličtina a ďalšie). Nové popisy kníh, ktoré appka dotiahne
   z Open Library/Google Books, sa **automaticky preložia** do tohto

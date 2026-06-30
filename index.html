@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knižnica</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -259,6 +260,7 @@
   .book-body{padding:10px 2px 0; display:flex; flex-direction:column; flex-grow:1;}
   .book-title{font-family:'Fraunces',serif; font-weight:600; font-size:14px; line-height:1.3; margin:0 0 3px; flex-grow:1;}
   .book-author{font-size:12px; color:var(--ink-soft); margin:0;}
+  .book-meta{font-size:11px; color:var(--ink-soft); opacity:0.75; margin:2px 0 0; font-family:'JetBrains Mono', monospace;}
   .card-delete-btn{
     position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%;
     background:rgba(28,27,25,0.55); color:#fff; border:none; cursor:pointer;
@@ -325,6 +327,7 @@
   }
   .close-btn:hover{background:var(--bg-sunk);}
   .close-btn:disabled{opacity:0.5; cursor:default;}
+  .close-btn-sm{padding:7px 12px; font-size:12px; border-radius:7px;}
 
   .more-menu-item{
     display:block; width:100%; text-align:left; padding:10px 12px; border-radius:7px;
@@ -382,6 +385,7 @@
       <p class="subtitle">osobný katalóg kníh — odfoť, zapíš, prelistuj</p>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
+      <span id="currentUserLabel" class="ledger-no" style="color:var(--ink-soft);" title="Prihlásený používateľ"></span>
       <span id="syncStatus" class="ledger-no" title="Stav synchronizácie so zdieľaným úložiskom"></span>
       <div class="ledger-no">№ <span id="ledgerCount">000</span></div>
     </div>
@@ -394,23 +398,29 @@
         <h2>Kategórie</h2>
         <div id="genreList"></div>
 
-        <div class="api-box">
-          <label for="booksApiKeyInput">Google Books API kľúč (pre obaly a popisy)</label>
-          <input type="password" id="booksApiKeyInput" placeholder="vlož API kľúč…">
-          <p class="hint">Bez kľúča má Google Books API veľmi nízky a nestabilný limit (časté chyby 429). Môžeš použiť <strong>ten istý kľúč</strong> ako pre Gemini, ale v <a href="https://console.cloud.google.com/apis/library/books.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> mu musíš najprv povoliť „Books API“.</p>
-          <p class="api-status" id="booksApiKeyStatus"></p>
+        <div class="api-box" id="migratePanel" style="display:none; border:1px solid #D9A441; background:#FBF3E3; border-radius:10px; padding:14px; margin-top:0;">
+          <label style="color:#9A6A14;">⚠️ Našli sme staršiu knižnicu</label>
+          <p class="hint" style="margin-top:0; margin-bottom:10px; color:#9A6A14;">Vyzerá to tak, že máš staré dáta z verzie spred prihlasovania. Chceš ich priradiť k tomuto účtu?</p>
+          <button id="migrateLegacyBtn" class="btn btn-outline" style="width:100%;">📦 Priradiť staré dáta k môjmu účtu</button>
+          <p class="api-status" id="migrateStatus"></p>
         </div>
 
         <div class="api-box">
-          <label for="apiKeyInput">Gemini API kľúč (pre foto-rozpoznávanie)</label>
-          <input type="password" id="apiKeyInput" placeholder="vlož svoj API kľúč…">
-          <p class="hint">Kľúč sa ukladá len v tomto prehliadači (localStorage), nikam sa neposiela okrem priamo do Google Gemini API. Získaš ho na <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
-          <p class="api-status" id="apiKeyStatus"></p>
+          <a href="nastavenia.html" class="btn btn-outline" style="width:100%; justify-content:center; text-decoration:none;">⚙️ Nastavenia</a>
+          <p class="hint" style="margin-top:10px;">API kľúče, jazyk, zdieľanie knižnice, záloha a ďalšie nastavenia účtu.</p>
         </div>
 
-        <div class="api-box">
-          <label for="languageSelect">Jazyk knižnice</label>
-          <select id="languageSelect" style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--card); color:var(--ink); font-family:'Inter',sans-serif;">
+        <!-- Tieto ovládacie prvky sa teraz zobrazujú na samostatnej stránke
+             nastavenia.html (settings.js). Zostávajú tu skryté, nech ich
+             app.js môže naďalej bezpečne ovládať bez prepisovania veľkého
+             množstva prepojeného kódu — appka funguje identicky ako predtým,
+             len tieto polia nie sú vizuálne v bočnom paneli. -->
+        <div style="display:none;">
+          <input type="password" id="booksApiKeyInput">
+          <p id="booksApiKeyStatus"></p>
+          <input type="password" id="apiKeyInput">
+          <p id="apiKeyStatus"></p>
+          <select id="languageSelect">
             <option value="sk">Slovenčina</option>
             <option value="cs">Čeština</option>
             <option value="en">Angličtina</option>
@@ -421,34 +431,14 @@
             <option value="es">Španielčina</option>
             <option value="it">Taliančina</option>
           </select>
-          <p class="hint">Nové popisy kníh (z Open Library/Google Books) sa pri dopĺňaní automaticky preložia do tohto jazyka — vyžaduje Gemini API kľúč vyššie.</p>
-        </div>
-
-        <div class="api-box">
-          <label>Zdieľanie knižnice</label>
-          <p class="hint" style="margin-top:0; margin-bottom:10px;">Zapni, ak chceš niekomu poslať odkaz na prezeranie tvojej knižnice (bez možnosti upravovať, bez prihlásenia).</p>
-          <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; margin-bottom:8px;">
-            <input type="checkbox" id="publicToggle"> Verejný náhľad zapnutý
-          </label>
-          <div id="publicLinkBox" style="display:none; gap:6px;">
-            <input type="text" id="publicLinkInput" readonly style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; background:var(--bg-sunk); color:var(--ink-soft); margin-bottom:6px;">
-            <button id="copyPublicLinkBtn" class="btn btn-outline" style="width:100%; font-size:13px; padding:8px 10px;">📋 Kopírovať odkaz</button>
-          </div>
-          <p class="api-status" id="publicStatus"></p>
-        </div>
-
-        <div class="api-box">
-          <label>Záloha katalógu</label>
-          <p class="hint" style="margin-top:0; margin-bottom:10px;">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="exportBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬇️ Exportovať JSON</button>
-            <button id="exportCsvBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬇️ Exportovať CSV</button>
-          </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-            <button id="importBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬆️ Importovať JSON</button>
-          </div>
-          <input type="file" id="importFileInput" accept=".json" style="display:none;">
-          <p class="api-status" id="importStatus"></p>
+          <input type="checkbox" id="publicToggle">
+          <div id="publicLinkBox"><input type="text" id="publicLinkInput"><button id="copyPublicLinkBtn">x</button></div>
+          <p id="publicStatus"></p>
+          <button id="exportBtn">x</button>
+          <button id="exportCsvBtn">x</button>
+          <button id="importBtn">x</button>
+          <input type="file" id="importFileInput" accept=".json">
+          <p id="importStatus"></p>
         </div>
       </div>
     </aside>
@@ -523,13 +513,23 @@
           <div>
             <h2 style="margin-bottom:4px;">🔍 Dohľadať ISBN pre existujúce knihy</h2>
             <p id="missingIsbnInfo" style="margin:0; font-size:13px; color:var(--ink-soft);"></p>
-            <p style="margin:6px 0 0; font-size:12px; color:var(--ink-soft);">
-              <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#3F8F5C; display:inline-block;"></span>zelené = odfotené/zadané ručne, isté</span>
+            <p style="margin:6px 0 0; font-size:12px; color:var(--ink-soft); line-height:1.5;">
+              <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#3F8F5C; display:inline-block;"></span>zelené = ISBN odfotené/zadané ručne, isté (ak vydanie nesedí s rokom, appka na to upozorní)</span>
               &nbsp;&nbsp;
-              <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#D9A441; display:inline-block;"></span>oranžové = dohľadané podľa názvu, over si to</span>
+              <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#D9A441; display:inline-block;"></span>oranžové = len dohľadané podľa názvu, môže patriť inej knihe — over si to skenom</span>
             </p>
           </div>
           <button id="bulkFindIsbnBtn" class="btn btn-outline">Spustiť hľadanie ISBN</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+          <div>
+            <h2 style="margin-bottom:4px;">📅 Dohľadať rok vydania a počet strán</h2>
+            <p id="missingMetaInfo" style="margin:0; font-size:13px; color:var(--ink-soft);"></p>
+          </div>
+          <button id="bulkFindMetaBtn" class="btn btn-outline">Spustiť hľadanie</button>
         </div>
       </div>
 
@@ -584,6 +584,7 @@
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
             <span class="modal-genre-tag" id="modalGenre" style="margin-bottom:0;"></span>
             <span id="modalIsbn" class="mono" style="font-size:12px; color:var(--ink-soft); display:none;"></span>
+            <span id="modalMeta" class="mono" style="font-size:12px; color:var(--ink-soft); display:none;"></span>
           </div>
           <div id="modalDescriptionContainer">
             <div id="modalLoader" class="modal-loader" style="display:none;"></div>
@@ -605,6 +606,12 @@
           <label class="edit-label" for="editIsbn">ISBN</label>
           <input type="text" id="editIsbn" class="edit-input" placeholder="nepovinné, napr. 978-80-...">
 
+          <label class="edit-label" for="editPublishYear">Rok vydania</label>
+          <input type="number" id="editPublishYear" class="edit-input" placeholder="nepovinné" min="1400" max="2100">
+
+          <label class="edit-label" for="editPageCount">Počet strán</label>
+          <input type="number" id="editPageCount" class="edit-input" placeholder="nepovinné" min="1">
+
           <label class="edit-label" for="editGenre">Kategória</label>
           <select id="editGenre" class="edit-input"></select>
         </div>
@@ -612,13 +619,12 @@
       </div>
 
       <!-- Primárne akcie — vždy viditeľné -->
-      <div id="modalPrimaryActions" style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; align-items:center;">
-        <button id="modalEditBtn" class="close-btn">✏️ Upraviť</button>
-        <button id="modalRescanBtn" class="close-btn">🔄 Hľadať znova</button>
-        <button id="modalCoverBtn" class="close-btn">📷 Nahrať obal</button>
+      <div id="modalPrimaryActions" style="display:flex; gap:8px; margin-top:18px; flex-wrap:wrap; align-items:center;">
+        <button id="modalEditBtn" class="close-btn close-btn-sm">✏️ Upraviť</button>
+        <button id="modalRescanBtn" class="close-btn close-btn-sm">🔄 Hľadať znova</button>
 
         <div style="position:relative; margin-left:auto;">
-          <button id="modalMoreBtn" class="close-btn" title="Ďalšie možnosti">⋯ Viac</button>
+          <button id="modalMoreBtn" class="close-btn close-btn-sm" title="Ďalšie možnosti">⋯ Viac</button>
           <div id="modalMoreMenu" style="display:none; position:absolute; bottom:calc(100% + 6px); right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 14px 36px -12px rgba(0,0,0,0.25); padding:6px; min-width:220px; z-index:5;">
             <button id="modalScanIsbnBtn" class="more-menu-item">📷 Sken ISBN</button>
             <button id="modalGeminiSearchBtn" class="more-menu-item">🔎 Hľadať cez Gemini (web)</button>
@@ -626,13 +632,14 @@
           </div>
         </div>
 
-        <button id="closeModal" class="close-btn" style="background:var(--ink); color:#fff; border-color:var(--ink);">Zavrieť</button>
+        <button id="closeModal" class="close-btn close-btn-sm" style="background:var(--ink); color:#fff; border-color:var(--ink);">Zavrieť</button>
       </div>
 
       <!-- Akcie editovacieho režimu — zobrazia sa len počas úpravy -->
-      <div id="modalEditActions" style="display:none; gap:10px; margin-top:18px; flex-wrap:wrap;">
-        <button id="modalSaveBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">Uložiť zmeny</button>
-        <button id="modalCancelEditBtn" class="close-btn">Zrušiť</button>
+      <div id="modalEditActions" style="display:none; gap:8px; margin-top:18px; flex-wrap:wrap;">
+        <button id="modalSaveBtn" class="close-btn close-btn-sm" style="background:var(--accent); color:#fff; border-color:var(--accent);">Uložiť zmeny</button>
+        <button id="modalCoverBtn" class="close-btn close-btn-sm">📷 Nahrať obal</button>
+        <button id="modalCancelEditBtn" class="close-btn close-btn-sm">Zrušiť</button>
       </div>
     </div>
   </div>

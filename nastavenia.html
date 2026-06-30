@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nastavenia — Knižnica</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script defer src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<style>
+  :root{
+    --bg: #FAFAF8;
+    --bg-sunk: #F2F1ED;
+    --ink: #1C1B19;
+    --ink-soft: #8A8782;
+    --ink-mid: #55534D;
+    --accent: #1F5C52;
+    --accent-soft: #E3EEEC;
+    --line: #E8E6E0;
+    --card: #FFFFFF;
+    --danger: #B3433A;
+    --danger-soft: #F7E9E7;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif;}
+  h1,h2,h3{font-family:'Fraunces',serif; letter-spacing:-0.01em;}
+  a{color:inherit;}
+  .wrap{max-width:760px; margin:0 auto; padding:32px 24px 80px;}
+  header.top{display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:28px; padding-bottom:18px; border-bottom:1px solid var(--line);}
+  header.top h1{font-size:26px; margin:0;}
+  .back-link{font-size:13.5px; color:var(--ink-soft); text-decoration:none; display:inline-flex; align-items:center; gap:6px;}
+  .back-link:hover{color:var(--accent);}
+
+  .panel{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px 26px; margin-bottom:20px;}
+  .panel h2{font-size:17px; margin:0 0 14px;}
+  .panel .hint{font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:6px 0 0;}
+
+  label.field-label{font-size:12px; color:var(--ink-soft); display:block; margin-bottom:6px; margin-top:14px;}
+  label.field-label:first-of-type{margin-top:0;}
+  input[type=text], input[type=password], select{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; background:var(--card); color:var(--ink); font-family:'Inter',sans-serif;
+  }
+  input:focus, select:focus{border-color:var(--accent); outline:none;}
+
+  .btn{
+    padding:10px 18px; border-radius:8px; font-weight:600; font-size:13.5px; cursor:pointer;
+    border:1px solid var(--line); background:var(--card); color:var(--ink); display:inline-flex;
+    align-items:center; gap:7px; font-family:'Inter',sans-serif;
+  }
+  .btn:hover{background:var(--bg-sunk);}
+  .btn-primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .btn-primary:hover{background:#194e45;}
+  .btn-danger{background:var(--card); color:var(--danger); border-color:var(--danger-soft);}
+  .btn-danger:hover{background:var(--danger-soft);}
+  .btn:disabled{opacity:0.5; cursor:default;}
+
+  .toggle-row{display:flex; align-items:center; gap:10px; font-size:14px; cursor:pointer; margin-bottom:10px;}
+  .status-msg{font-size:13px; margin-top:10px; min-height:18px;}
+  .status-msg.ok{color:var(--accent);}
+  .status-msg.bad{color:var(--danger);}
+
+  .danger-zone{border-color:var(--danger-soft); background:var(--danger-soft);}
+  .danger-zone h2{color:var(--danger);}
+
+  #loginScreen{min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; padding:24px; text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen" style="display:none;">
+  <h1 style="font-family:'Fraunces',serif; font-size:30px; font-weight:600; margin:0;">Knižnica<span style="color:var(--accent);">.</span></h1>
+  <p style="color:var(--ink-soft); font-size:14px; margin:0;">Pre nastavenia sa musíš prihlásiť.</p>
+  <a href="index.html" class="btn btn-primary">Späť na knižnicu</a>
+</div>
+
+<div id="settingsRoot" class="wrap" style="display:none;">
+  <header class="top">
+    <h1>Nastavenia</h1>
+    <a href="index.html" class="back-link">← Späť na knižnicu</a>
+  </header>
+
+  <div class="panel">
+    <h2>Účet</h2>
+    <p style="margin:0; font-size:14px;" id="accountEmail"></p>
+    <p class="hint">Tvoja knižnica je viazaná na tento účet a zdieľaná naprieč zariadeniami, kde sa prihlásiš.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Jazyk knižnice</h2>
+    <select id="languageSelect">
+      <option value="sk">Slovenčina</option>
+      <option value="cs">Čeština</option>
+      <option value="en">Angličtina</option>
+      <option value="de">Nemčina</option>
+      <option value="pl">Poľština</option>
+      <option value="hu">Maďarčina</option>
+      <option value="fr">Francúzština</option>
+      <option value="es">Španielčina</option>
+      <option value="it">Taliančina</option>
+    </select>
+    <p class="hint">Nové popisy kníh sa pri dopĺňaní automaticky preložia do tohto jazyka — vyžaduje Gemini API kľúč nižšie.</p>
+  </div>
+
+  <div class="panel">
+    <h2>API kľúče</h2>
+    <label class="field-label" for="booksApiKeyInput">Google Books API kľúč (pre obaly a popisy)</label>
+    <input type="password" id="booksApiKeyInput" placeholder="vlož API kľúč…">
+    <p class="hint">Bez kľúča má Google Books API veľmi nízky a nestabilný limit (časté chyby 429). Môžeš použiť <strong>ten istý kľúč</strong> ako pre Gemini, ale v <a href="https://console.cloud.google.com/apis/library/books.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> mu musíš najprv povoliť „Books API".</p>
+    <p class="status-msg" id="booksApiKeyStatus"></p>
+
+    <label class="field-label" for="apiKeyInput">Gemini API kľúč (pre foto-rozpoznávanie a preklad)</label>
+    <input type="password" id="apiKeyInput" placeholder="vlož svoj API kľúč…">
+    <p class="hint">Kľúč sa ukladá len v tomto prehliadači (localStorage), nikam sa neposiela okrem priamo do Google Gemini API. Získaš ho na <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+    <p class="status-msg" id="apiKeyStatus"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Zdieľanie knižnice</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:12px;">Zapni, ak chceš niekomu poslať odkaz na prezeranie tvojej knižnice (bez možnosti upravovať, bez prihlásenia).</p>
+    <label class="toggle-row">
+      <input type="checkbox" id="publicToggle"> Verejný náhľad zapnutý
+    </label>
+    <div id="publicLinkBox" style="display:none; flex-direction:column; gap:6px;">
+      <input type="text" id="publicLinkInput" readonly style="background:var(--bg-sunk); color:var(--ink-soft); font-size:12.5px;">
+      <button id="copyPublicLinkBtn" class="btn" style="width:fit-content;">📋 Kopírovať odkaz</button>
+    </div>
+    <p class="status-msg" id="publicStatus"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Záloha katalógu</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:12px;">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+      <button id="exportBtn" class="btn">⬇️ Exportovať JSON</button>
+      <button id="exportCsvBtn" class="btn">⬇️ Exportovať CSV</button>
+    </div>
+    <button id="importBtn" class="btn">⬆️ Importovať JSON</button>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;">
+    <p class="status-msg" id="importStatus"></p>
+  </div>
+
+  <div class="panel danger-zone">
+    <h2>⚠️ Nebezpečná zóna</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:14px; color:var(--ink-mid);">Tieto akcie sú nezvratné.</p>
+
+    <div style="margin-bottom:18px;">
+      <button id="deleteAllBooksBtn" class="btn btn-danger">🗑️ Zmazať všetky knihy</button>
+      <p class="hint">Vymaže celý tvoj katalóg (knihy), účet a prihlásenie zostanú — môžeš začať znova od nuly.</p>
+    </div>
+
+    <div>
+      <button id="deleteAccountBtn" class="btn btn-danger">🗑️ Zmazať účet</button>
+      <p class="hint">Úplne zmaže tvoj účet (vrátane prihlasovacích údajov) aj všetky knihy. Po tomto kroku sa už nebudeš môcť prihlásiť pod týmto účtom.</p>
+    </div>
+    <p class="status-msg" id="dangerStatus"></p>
+  </div>
+</div>
+
+<!-- Modal s voľbou pri importe (zlúčiť / nahradiť) -->
+<div id="importChoiceModal" style="display:none; position:fixed; inset:0; background:rgba(28,27,25,0.55); align-items:center; justify-content:center; padding:20px; z-index:50;">
+  <div style="background:var(--card); border-radius:16px; max-width:480px; width:100%; padding:28px 30px;">
+    <h2 style="font-size:19px; margin:0 0 12px;">Importovať katalóg</h2>
+    <p id="importChoiceSummary" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-soft); line-height:1.5;"></p>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button id="importMergeBtn" class="btn btn-primary" style="text-align:left; padding:14px 16px; justify-content:flex-start;">
+        <span><strong>Zlúčiť</strong> — pridá len nové knihy, duplicity preskočí</span>
+      </button>
+      <button id="importReplaceBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;">
+        <strong>Nahradiť</strong> — úplne nahradí aktuálny katalóg importovaným
+      </button>
+      <button id="importCancelBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;">Zrušiť</button>
+    </div>
+  </div>
+</div>
+
+<!-- Potvrdzovací modal pre nebezpečné akcie -->
+<div id="confirmDangerModal" style="display:none; position:fixed; inset:0; background:rgba(28,27,25,0.55); align-items:center; justify-content:center; padding:20px; z-index:50;">
+  <div style="background:var(--card); border-radius:16px; max-width:440px; width:100%; padding:28px 30px;">
+    <h2 id="confirmDangerTitle" style="font-size:19px; margin:0 0 10px;"></h2>
+    <p id="confirmDangerText" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-mid); line-height:1.5;"></p>
+    <p class="hint" style="margin:0 0 14px;">Pre potvrdenie napíš slovo <strong id="confirmDangerWord"></strong> nižšie:</p>
+    <input type="text" id="confirmDangerInput" style="margin-bottom:16px;">
+    <div style="display:flex; gap:10px;">
+      <button id="confirmDangerBtn" class="btn btn-danger" disabled>Potvrdiť</button>
+      <button id="cancelDangerBtn" class="btn">Zrušiť</button>
+    </div>
+  </div>
+</div>
+
+<script src="settings.js"></script>
+</body>
+</html>
