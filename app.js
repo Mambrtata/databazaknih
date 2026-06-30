@@ -308,7 +308,7 @@ function importCatalog(file) {
       createdAt: b.createdAt || Date.now()
     }));
 
-    saveBooks();
+    saveBooks(true);
     filterAndRenderBooks();
     importStatus.textContent = `Naimportovaných ${allBooks.length} kníh.`;
     importStatus.className = 'api-status ok';
@@ -320,7 +320,7 @@ function importCatalog(file) {
   reader.readAsText(file);
 }
 
-function saveBooks() {
+function saveBooks(immediate = false) {
   // Lokálnu kópiu ukladáme hneď a synchrónne — UI nesmie čakať na sieť.
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(allBooks));
@@ -329,12 +329,21 @@ function saveBooks() {
     showError('Pamäť prehliadača pre tento katalóg je plná (typicky pri veľkom množstve vlastných fotiek obalov). Skús zmenšiť počet vlastných fotiek, alebo si urob export katalógu a pokračuj v inom prehliadači.');
   }
 
-  // Cloud zápis odložíme (debounce 800ms), aby sme pri rýchlych po sebe
-  // idúcich zmenách (napr. hromadné dopĺňanie obalov) neposielali desiatky
-  // požiadaviek za sekundu — vždy sa zapíše len posledný, najaktuálnejší stav.
   if (!cloudSyncAvailable) return;
   clearTimeout(saveDebounceTimer);
-  saveDebounceTimer = setTimeout(syncToCloud, 800);
+
+  if (immediate) {
+    // Pre jednorazové, dôležité akcie (preklad, rescan, ručná úprava, nahraný
+    // obal) chceme zápis do cloudu hneď — ak by si stránku zatvoril/obnovil
+    // skôr, než by debounce stihol odoslať dáta, loadBooks() by pri ďalšom
+    // otvorení stiahla zo serveru staršiu verziu a prepísala by ňou zmenu.
+    syncToCloud();
+  } else {
+    // Pre hromadné/rýchlo opakované zmeny (napr. dopĺňanie obalov pri 190
+    // knihách) odložíme zápis o 800ms, nech sa neposielajú desiatky
+    // požiadaviek za sekundu — vždy sa zapíše len posledný, najaktuálnejší stav.
+    saveDebounceTimer = setTimeout(syncToCloud, 800);
+  }
 }
 
 async function syncToCloud() {
@@ -790,7 +799,7 @@ async function addBook(title, author, genre, originalTitle, skipDetails) {
     createdAt: Date.now()
   };
   allBooks.unshift(newBook);
-  saveBooks();
+  saveBooks(true);
   filterAndRenderBooks();
 
   if (!skipDetails) {
@@ -801,7 +810,7 @@ async function addBook(title, author, genre, originalTitle, skipDetails) {
       newBook.description = description;
     }
     newBook.sourcesTried = sources || newBook.sourcesTried;
-    saveBooks();
+    saveBooks(true);
     filterAndRenderBooks();
     hideLoader();
   }
@@ -809,7 +818,7 @@ async function addBook(title, author, genre, originalTitle, skipDetails) {
 
 function deleteBook(id) {
   allBooks = allBooks.filter(b => b.id !== id);
-  saveBooks();
+  saveBooks(true);
   filterAndRenderBooks();
 }
 
@@ -853,7 +862,11 @@ async function searchViaGeminiWeb(book) {
 
   const searchTerm = book.originalTitle ? `${book.title} (${book.originalTitle})` : book.title;
   const systemPrompt = "You are a helpful research assistant for a personal book catalog. Use web search to find publicly available information about the specific book edition described, then respond with structured JSON only.";
-  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). Skús nájsť priamu URL adresu obrázka obalu tejto konkrétnej knihy (napr. z antikvariátov, knižných databáz alebo vydavateľstiev) a stručne zhrň dej vlastnými slovami v slovenčine (2-4 vety).\n\nOdpovedz IBA validným JSON objektom v tomto tvare, bez markdown formátovania a bez ďalšieho textu:\n{"coverUrl": "https://... alebo null ak si žiadnu nenašiel", "description": "slovenský popis alebo null"}`;
+  // Poznámka: Gemini cez grounding často nevie spoľahlivo skonštruovať priamu
+  // funkčnú URL obrázka obalu (vidí len text výsledkov vyhľadávania, nie
+  // skutočné obrázkové súbory) — preto žiadame radšej odkaz na stránku
+  // (antikvariát/databáza), odkiaľ si obal vieš stiahnuť a nahrať ručne.
+  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). Skús nájsť webovú stránku (napr. antikvariát, knižná databáza ako databazeknih.cz, alebo vydavateľstvo), kde je k tejto konkrétnej knihe zobrazený obal — uveď URL tej stránky, NIE priamu URL obrázka. Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).\n\nOdpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formátovania, bez spätných úvodzoviek, bez akéhokoľvek ďalšieho textu pred alebo za JSON-om:\n{"pageUrl": "https://... alebo null ak si žiadnu nenašiel", "pageSource": "názov stránky, napr. Databáze knih, alebo null", "description": "slovenský popis alebo null"}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -877,26 +890,34 @@ async function searchViaGeminiWeb(book) {
     const result = await response.json();
     let text = result.candidates?.[0]?.content?.parts?.find(p => p.text)?.text?.trim();
     if (!text) {
+      console.error('Gemini web search — žiadny text v odpovedi. Celá odpoveď:', JSON.stringify(result));
       showError('Gemini nevrátil žiadnu odpoveď. Skús to znova.');
       return null;
     }
 
-    // Gemini niekedy odpoveď zabalí do ```json ... ``` bloku napriek pokynu — očistíme to.
-    text = text.replace(/^```json\s*|\s*```$/g, '').trim();
+    // Gemini niekedy odpoveď zabalí do ```json ... ``` bloku, alebo pred/za JSON
+    // pridá vysvetľujúci text napriek pokynu — vytiahneme len samotný JSON blok.
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const cleanedText = jsonMatch ? jsonMatch[0] : text.replace(/^```json\s*|\s*```$/g, '').trim();
 
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(cleanedText);
     } catch (e) {
-      console.error('Gemini web search vrátil text, ktorý sa nepodarilo spracovať ako JSON:', text);
-      showError('Gemini vrátil neočakávaný formát odpovede. Skús to znova.');
+      console.error('Gemini web search vrátil text, ktorý sa nepodarilo spracovať ako JSON. Pôvodný text:', text);
+      showError('Gemini vrátil neočakávaný formát odpovede (pozri konzolu pre detail). Skús to znova.');
       return null;
     }
 
-    return {
-      coverUrl: (parsed.coverUrl && parsed.coverUrl !== 'null') ? parsed.coverUrl : null,
-      description: (parsed.description && parsed.description !== 'null') ? parsed.description : null
-    };
+    const pageUrl = (parsed.pageUrl && parsed.pageUrl !== 'null') ? parsed.pageUrl : null;
+    const pageSource = (parsed.pageSource && parsed.pageSource !== 'null') ? parsed.pageSource : null;
+    const description = (parsed.description && parsed.description !== 'null') ? parsed.description : null;
+
+    if (!pageUrl && !description) {
+      console.log('Gemini web search pre "' + book.title + '" nenašiel nič. Surová odpoveď:', text);
+    }
+
+    return { pageUrl, pageSource, description };
   } catch (error) {
     console.error('Chyba pri vyhľadávaní cez Gemini web search:', error);
     showError('Nepodarilo sa spojiť s Gemini API. Skontroluj pripojenie.');
@@ -1226,7 +1247,7 @@ async function handleDetailClick(bookId) {
       if (!details.networkError) {
         if (!book.coverUrl) book.coverUrl = details.coverUrl; // nepreписuj vlastný/už nájdený obal
         book.description = details.description;
-        saveBooks();
+        saveBooks(true);
         filterAndRenderBooks();
       }
 
@@ -1326,7 +1347,7 @@ function saveEditedBook() {
     book.description = null;
   }
 
-  saveBooks();
+  saveBooks(true);
   filterAndRenderBooks();
   exitEditMode();
 
@@ -1369,7 +1390,7 @@ async function rescanFromModal() {
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
-      saveBooks();
+      saveBooks(true);
       filterAndRenderBooks();
     }
     if (book.coverUrl) {
@@ -1549,7 +1570,7 @@ async function rescanBook(bookId, buttonEl) {
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
-      saveBooks();
+      saveBooks(true);
     } else {
       showError('Nepodarilo sa znova vyhľadať túto knihu — skontroluj pripojenie alebo to skús neskôr.');
     }
@@ -1577,7 +1598,7 @@ modalTranslateBtn.addEventListener('click', async () => {
   const translated = await translateDescription(book);
   if (translated) {
     book.description = translated;
-    saveBooks();
+    saveBooks(true);
     modalDescription.textContent = translated;
     filterAndRenderBooks();
   }
@@ -1598,21 +1619,28 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
 
   modalGeminiSearchBtn.disabled = true;
   modalGeminiSearchBtn.textContent = '… hľadám na webe';
+  errorMessage.textContent = '';
 
   const result = await searchViaGeminiWeb(book);
   if (result) {
-    if (result.coverUrl) book.coverUrl = result.coverUrl;
-    if (result.description) book.description = result.description;
-    if (result.coverUrl || result.description) {
-      saveBooks();
+    if (result.description) {
+      book.description = result.description;
+      saveBooks(true);
       filterAndRenderBooks();
-      if (book.coverUrl) modalCover.src = book.coverUrl;
-      if (book.description) {
-        modalDescription.textContent = book.description;
-        updateTranslateButtonVisibility(book);
-      }
-    } else {
-      errorMessage.textContent = 'Gemini cez webové vyhľadávanie nenašiel pre túto knihu žiadny obal ani popis.';
+      modalDescription.textContent = book.description;
+      updateTranslateButtonVisibility(book);
+    }
+
+    if (result.pageUrl) {
+      // Gemini cez webové vyhľadávanie nevie spoľahlivo poskytnúť priamu
+      // funkčnú URL obrázka — namiesto toho ukážeme odkaz na stránku
+      // (antikvariát/databáza), odkiaľ si obal vieš ručne stiahnuť a nahrať
+      // cez tlačidlo "📷 Nahrať obal".
+      const safeUrl = escapeHtml(result.pageUrl);
+      const linkLabel = result.pageSource ? `Otvoriť na ${escapeHtml(result.pageSource)}` : 'Otvoriť nájdenú stránku';
+      errorMessage.innerHTML = `Gemini našiel možný zdroj obalu: <a href="${safeUrl}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${linkLabel}</a> — obal si odtiaľ môžeš stiahnuť a nahrať tlačidlom „📷 Nahrať obal“.`;
+    } else if (!result.description) {
+      errorMessage.textContent = 'Gemini cez webové vyhľadávanie nenašiel pre túto knihu žiadnu stránku s obalom ani popis.';
     }
   }
 
@@ -1631,7 +1659,7 @@ customCoverUpload.addEventListener('change', (event) => {
   resizeImageToDataUrl(file, 400, 600, (dataUrl) => {
     book.coverUrl = dataUrl;
     book.customCover = true;
-    saveBooks();
+    saveBooks(true);
     filterAndRenderBooks();
     if (currentModalBookId === bookId) {
       modalCover.src = dataUrl;
