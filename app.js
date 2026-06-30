@@ -1638,12 +1638,12 @@ async function searchViaGeminiWeb(book) {
   // skutočné obrázkové súbory) — preto žiadame radšej odkaz na stránku
   // (antikvariát/databáza), odkiaľ si obal vieš stiahnuť a nahrať ručne.
   const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). 
-Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, antikvariaty.net, martinus.sk, alebo stránky vydavateľstiev.
-Ak nájdeš obal knihy, skús získať PRIAMU URL obrázka (končiacu na .jpg, .png, .webp a podobne) — nie URL stránky, ale samotného obrázka.
+Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, martinus.sk, alebo stránky vydavateľstiev.
+Ak nájdeš obal knihy, získaj PRIAMU URL obrázka (končiacu na .jpg, .png, .webp) — nie URL stránky, ale samotného obrázka.
 Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).
 
-Odpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formátovania, bez spätných úvodzoviek:
-{"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "pageUrl": "https://...url stranky alebo null", "pageSource": "nazov stranky alebo null", "description": "slovensky popis alebo null"}`;
+Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
+{"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "description": "slovensky popis alebo null"}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -1667,13 +1667,10 @@ Odpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formát
     const result = await response.json();
     let text = result.candidates?.[0]?.content?.parts?.find(p => p.text)?.text?.trim();
     if (!text) {
-      console.error('Gemini web search — žiadny text v odpovedi. Celá odpoveď:', JSON.stringify(result));
       showError('Gemini nevrátil žiadnu odpoveď. Skús to znova.');
       return null;
     }
 
-    // Gemini niekedy odpoveď zabalí do ```json ... ``` bloku, alebo pred/za JSON
-    // pridá vysvetľujúci text napriek pokynu — vytiahneme len samotný JSON blok.
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const cleanedText = jsonMatch ? jsonMatch[0] : text.replace(/^```json\s*|\s*```$/g, '').trim();
 
@@ -1681,24 +1678,17 @@ Odpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formát
     try {
       parsed = JSON.parse(cleanedText);
     } catch (e) {
-      console.error('Gemini web search vrátil text, ktorý sa nepodarilo spracovať ako JSON. Pôvodný text:', text);
-      showError('Gemini vrátil neočakávaný formát odpovede (pozri konzolu pre detail). Skús to znova.');
+      showError('Gemini vrátil neočakávaný formát. Skús to znova.');
       return null;
     }
 
-    const pageUrl = (parsed.pageUrl && parsed.pageUrl !== 'null') ? parsed.pageUrl : null;
-    const pageSource = (parsed.pageSource && parsed.pageSource !== 'null') ? parsed.pageSource : null;
     const description = (parsed.description && parsed.description !== 'null') ? parsed.description : null;
     const coverImageUrl = (parsed.coverImageUrl && parsed.coverImageUrl !== 'null') ? parsed.coverImageUrl : null;
 
-    if (!pageUrl && !description && !coverImageUrl) {
-      console.log('Gemini web search pre "' + book.title + '" nenašiel nič. Surová odpoveď:', text);
-    }
-
-    return { pageUrl, pageSource, description, coverImageUrl };
+    return { description, coverImageUrl };
   } catch (error) {
-    console.error('Chyba pri vyhľadávaní cez Gemini web search:', error);
-    showError('Nepodarilo sa spojiť s Gemini API. Skontroluj pripojenie.');
+    console.error('Chyba pri vyhľadávaní cez Gemini:', error);
+    showError('Nepodarilo sa spojiť s Gemini API.');
     return null;
   }
 }
@@ -2509,7 +2499,6 @@ async function rescanFromModal() {
     modalLoader.style.display = 'none';
     modalDescription.style.display = 'block';
     modalRescanBtn.disabled = false;
-    modalRescanBtn.textContent = '🔄 Hľadať znova';
   }
 }
 
@@ -3187,7 +3176,13 @@ function renderGalleryCovers() {
     if (book && item.url === book.coverUrl) wrap.classList.add('selected');
 
     wrap.innerHTML = `
-      <img src="${escapeHtml(item.url)}" loading="lazy" onerror="this.closest('.cover-gallery-item').style.display='none'">
+      <img src="${escapeHtml(item.url)}" loading="lazy" 
+        style="background:var(--bg-sunk);"
+        onerror="this.style.display='none'; this.nextElementSibling && this.nextElementSibling.classList.add('cover-src-broken');">
+      <div class="cover-src-placeholder" style="display:none; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; padding:8px; text-align:center;">
+        <span style="font-size:20px;">🖼</span>
+        <span style="font-size:9px; color:var(--ink-soft); word-break:break-all;">${escapeHtml(item.source)}</span>
+      </div>
       <span class="cover-src">${escapeHtml(item.source)}</span>
       <button class="cover-delete" data-idx="${idx}" title="Odstrániť">×</button>
     `;
@@ -3373,18 +3368,18 @@ modalAiBtn.addEventListener('click', async () => {
     }
 
     if (result.coverImageUrl) {
-      // Pridáme obal do galérie, nie priamo — nech si používateľ vyberie
       if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
         galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
       }
-      if (modalErrorMessage) modalErrorMessage.innerHTML = `Gemini našiel obal — otvor <strong>Cover</strong> pre výber.`;
+      showToast('Obal nájdený — otvor Cover pre výber.', 'success', 3000);
       changed = true;
-    } else if (result.pageUrl) {
-      const linkLabel = result.pageSource || 'stránka';
-      if (modalErrorMessage) modalErrorMessage.innerHTML = `Obal nenašiel priamo — <a href="${escapeHtml(result.pageUrl)}" target="_blank" rel="noopener" style="color:var(--accent);">otvoriť ${escapeHtml(linkLabel)}</a>`;
-    } else if (!result.description) {
-      if (modalErrorMessage) modalErrorMessage.textContent = 'Gemini nenašiel ani popis ani obal.';
     }
+
+    if (!result.description && !result.coverImageUrl) {
+      showToast('Gemini nenašiel popis ani obal.', 'error', 3000);
+    }
+
+    if (modalErrorMessage) modalErrorMessage.textContent = '';
 
     if (changed) { saveBooks(true); filterAndRenderBooks(); }
   }
@@ -3437,15 +3432,35 @@ document.addEventListener('paste', (e) => {
 });
 
 // Alternatívne: zobrazí URL box pri pravom kliku / tlačidle (pridáme URL ikonu)
-coverGalleryUrlConfirm.addEventListener('click', () => {
+coverGalleryUrlConfirm.addEventListener('click', async () => {
   const url = coverGalleryUrlInput.value.trim();
   if (!url) return;
-  if (!galleryCovers.find(g => g.url === url)) {
-    galleryCovers.push({ url, source: 'Vlastná URL', generated: false });
+
+  coverGalleryUrlConfirm.disabled = true;
+  coverGalleryUrlConfirm.textContent = '⏳';
+  coverGalleryStatus.textContent = 'Sťahujem obrázok…';
+
+  try {
+    const res = await fetch('/.netlify/functions/image-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!data.dataUrl) throw new Error(data.error || 'Nepodarilo sa stiahnuť obrázok');
+
+    galleryCovers.push({ url: data.dataUrl, source: 'Vlastná URL', generated: false });
     renderGalleryCovers();
+    selectGalleryCover(data.dataUrl);
+    coverGalleryUrlBox.style.display = 'none';
+    coverGalleryUrlInput.value = '';
+    coverGalleryStatus.textContent = 'Obal uložený.';
+  } catch (err) {
+    coverGalleryStatus.textContent = `Chyba: ${err.message}`;
+  } finally {
+    coverGalleryUrlConfirm.disabled = false;
+    coverGalleryUrlConfirm.textContent = 'Použiť';
   }
-  selectGalleryCover(url);
-  coverGalleryUrlBox.style.display = 'none';
 });
 
 coverGalleryUrlCancel.addEventListener('click', () => {
@@ -3469,10 +3484,8 @@ coverGalleryWebSearchBtn.addEventListener('click', async () => {
     galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini web', generated: false });
     renderGalleryCovers();
     coverGalleryStatus.textContent = 'Gemini našiel obal. Klikni pre výber.';
-  } else if (result?.pageUrl) {
-    coverGalleryStatus.textContent = `Priama URL nenájdená. Pozri stránku: ${result.pageUrl}`;
   } else {
-    coverGalleryStatus.textContent = 'Gemini nenašiel obal na webe.';
+    coverGalleryStatus.textContent = 'Gemini nenašiel obal.';
   }
   coverGalleryWebSearchBtn.disabled = false;
   coverGalleryWebSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
@@ -3687,12 +3700,11 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
     }
 
     if (result.coverImageUrl) {
-      errorMessage.innerHTML = `Gemini našiel a uložil obal knihy.`;
-    } else if (result.pageUrl) {
-      const linkLabel = result.pageSource ? `Otvoriť na ${escapeHtml(result.pageSource)}` : 'Otvoriť nájdenú stránku';
-      errorMessage.innerHTML = `Obal nenašiel priamo — tu je stránka kde by mal byť: <a href="${escapeHtml(result.pageUrl)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${linkLabel}</a>`;
+      errorMessage.textContent = 'Gemini našiel a uložil obal.';
     } else if (!result.description) {
-      errorMessage.textContent = 'Gemini nenašiel pre túto knihu ani obal ani popis.';
+      errorMessage.textContent = 'Gemini nenašiel ani obal ani popis.';
+    } else {
+      errorMessage.textContent = '';
     }
   }
   modalGeminiSearchBtn.disabled = false;
