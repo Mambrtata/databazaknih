@@ -387,6 +387,7 @@
 </div>
 
 <input type="file" id="customCoverUpload" accept="image/*" style="display:none;">
+<input type="file" id="isbnScanUpload" accept="image/*" capture="environment" style="display:none;">
 
 <!-- Modal -->
 <div id="bookModal" class="modal-overlay hidden">
@@ -400,7 +401,10 @@
           <h2 id="modalTitle"></h2>
           <p id="modalOriginalTitle" style="font-size:13px; color:var(--ink-soft); margin:0 0 4px; font-style:italic; display:none;"></p>
           <h3 id="modalAuthor"></h3>
-          <span class="modal-genre-tag" id="modalGenre"></span>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+            <span class="modal-genre-tag" id="modalGenre" style="margin-bottom:0;"></span>
+            <span id="modalIsbn" class="mono" style="font-size:12px; color:var(--ink-soft); display:none;"></span>
+          </div>
           <div id="modalDescriptionContainer">
             <div id="modalLoader" class="modal-loader" style="display:none;"></div>
             <p class="modal-desc" id="modalDescription"></p>
@@ -418,6 +422,9 @@
           <label class="edit-label" for="editAuthor">Autor</label>
           <input type="text" id="editAuthor" class="edit-input">
 
+          <label class="edit-label" for="editIsbn">ISBN</label>
+          <input type="text" id="editIsbn" class="edit-input" placeholder="nepovinné, napr. 978-80-...">
+
           <label class="edit-label" for="editGenre">Kategória</label>
           <select id="editGenre" class="edit-input"></select>
         </div>
@@ -428,6 +435,7 @@
         <button id="modalSaveBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent); display:none;">Uložiť zmeny</button>
         <button id="modalCancelEditBtn" class="close-btn" style="display:none;">Zrušiť</button>
         <button id="modalRescanBtn" class="close-btn">🔄 Hľadať znova</button>
+        <button id="modalScanIsbnBtn" class="close-btn">📷 Odfotiť ISBN</button>
         <button id="modalGeminiSearchBtn" class="close-btn">🔎 Hľadať cez Gemini (web)</button>
         <button id="modalTranslateBtn" class="close-btn" style="display:none;">🌐 Preložiť popis</button>
         <button id="modalCoverBtn" class="close-btn">📷 Nahrať obal</button>
