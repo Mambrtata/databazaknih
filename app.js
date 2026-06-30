@@ -58,13 +58,23 @@ function swatchColorForGenre(genre) {
 }
 
 // --- DOM elementy ---
-const imageUpload = document.getElementById('imageUpload'),
-  fileNameDisplay = document.getElementById('fileName'),
+const isbnAddUpload = document.getElementById('isbnAddUpload'),
+  shelfAddUpload = document.getElementById('shelfAddUpload'),
+  openManualAddBtn = document.getElementById('openManualAddBtn'),
+  manualAddPanel = document.getElementById('manualAddPanel'),
+  addFlowStatus = document.getElementById('addFlowStatus'),
   addBookForm = document.getElementById('addBookForm'),
   bookTitleInput = document.getElementById('bookTitle'),
   bookAuthorInput = document.getElementById('bookAuthor'),
   bookOriginalTitleInput = document.getElementById('bookOriginalTitle'),
+  bookIsbnInput = document.getElementById('bookIsbn'),
   bookGenreInput = document.getElementById('bookGenre'),
+  shelfReviewModal = document.getElementById('shelfReviewModal'),
+  shelfReviewSummary = document.getElementById('shelfReviewSummary'),
+  shelfReviewList = document.getElementById('shelfReviewList'),
+  shelfReviewAddBtn = document.getElementById('shelfReviewAddBtn'),
+  shelfReviewSelectAllBtn = document.getElementById('shelfReviewSelectAllBtn'),
+  shelfReviewCancelBtn = document.getElementById('shelfReviewCancelBtn'),
   bookList = document.getElementById('bookList'),
   loader = document.getElementById('loader'),
   statusMessage = document.getElementById('statusMessage'),
@@ -844,7 +854,7 @@ async function fetchCoverFromWikidata(title, author) {
 // CRUD operácie nad knihami
 // ============================================================
 
-async function addBook(title, author, genre, originalTitle, skipDetails) {
+async function addBook(title, author, genre, originalTitle, skipDetails, isbn) {
   if (!title || !title.trim()) return;
   const newBook = {
     id: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
@@ -852,6 +862,7 @@ async function addBook(title, author, genre, originalTitle, skipDetails) {
     author: (author || '').trim(),
     genre: (genre || 'Nezaradené').trim(),
     originalTitle: (originalTitle || '').trim(),
+    isbn: normalizeIsbn(isbn || ''),
     coverUrl: null,
     description: null,
     createdAt: Date.now()
@@ -1508,12 +1519,13 @@ async function analyzeImage(base64ImageData) {
     return;
   }
 
+  addFlowStatus.textContent = 'Analyzujem fotku police… môže to chvíľu trvať.';
   showLoader('Analyzujem fotku… môže to chvíľu trvať.');
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  const systemPrompt = "You are an expert librarian AI. Your task is to accurately identify book titles and authors from images of bookshelves.";
-  const userQuery = "From the provided image, identify all visible book titles and their authors. Respond ONLY with a valid JSON array of objects. Each object should have two keys: 'title' and 'author'. If an author is not visible, set the author's value to an empty string. Example: [{\"title\": \"The Hobbit\", \"author\": \"J.R.R. Tolkien\"}]. Do not include any text, notes or markdown formatting before or after the JSON array.";
+  const systemPrompt = "You are an expert librarian AI. Your task is to accurately identify book titles and authors from images of bookshelves, and to honestly flag when text is unclear or only partially legible.";
+  const userQuery = "From the provided image, identify all visible books on the shelf (by their spines or covers). Respond ONLY with a valid JSON array of objects, one per book, each with these keys: 'title' (string, your best reading of it), 'author' (string, empty '' if not visible), 'readable' (boolean — true only if you are reasonably confident in the title text, false if the spine was blurry, partially obscured, at a steep angle, or you had to guess significantly). Example: [{\"title\": \"The Hobbit\", \"author\": \"J.R.R. Tolkien\", \"readable\": true}, {\"title\": \"???ouse of L???\", \"author\": \"\", \"readable\": false}]. Include books even if you're unsure — just mark them readable:false. Do not include any text, notes or markdown formatting before or after the JSON array.";
 
   const payload = {
     contents: [{
@@ -1550,28 +1562,28 @@ async function analyzeImage(base64ImageData) {
       if (candidate && candidate.content?.parts?.[0]?.text) {
         const identifiedBooks = JSON.parse(candidate.content.parts[0].text);
         if (Array.isArray(identifiedBooks) && identifiedBooks.length > 0) {
-          statusMessage.textContent = `Našiel som ${identifiedBooks.length} kníh. Pridávam do katalógu a hľadám obaly…`;
-          for (const b of identifiedBooks) {
-            await addBook(b.title, b.author || '', "Naskenované z fotky", '', true);
-          }
-          await fetchAllMissingDetails();
+          hideLoader();
+          addFlowStatus.textContent = '';
+          openShelfReviewModal(identifiedBooks);
         } else {
           showError('Na fotke sa nepodarilo rozpoznať žiadne knihy. Skús jasnejšiu fotku chrbtov kníh.');
+          hideLoader();
         }
       } else {
         throw new Error("Neočakávaná štruktúra odpovede od AI.");
       }
-      hideLoader();
       return;
     } catch (error) {
       if (error && error.fatal) {
         showError(error.message);
+        hideLoader();
         return;
       }
       attempts++;
       console.error(`Pokus ${attempts} zlyhal:`, error);
       if (attempts >= maxAttempts) {
         showError("Nepodarilo sa analyzovať obrázok ani po viacerých pokusoch. Skús to znova o chvíľu.");
+        hideLoader();
         break;
       }
       await new Promise(res => setTimeout(res, Math.pow(2, attempts) * 1000));
@@ -1579,9 +1591,96 @@ async function analyzeImage(base64ImageData) {
   }
 }
 
-// Rozpozná ISBN z fotky zadnej strany knihy (čiarový kód alebo vytlačené číslo)
-// a priamo ho priradí ku konkrétnej knihe v katalógu (volá sa z detailu knihy).
-async function analyzeIsbnImage(book, base64ImageData) {
+// ============================================================
+// Review modal pre knihy rozpoznané z fotky police — zobrazí zoznam
+// s checkboxami pred pridaním, nečitateľné položky vizuálne označí.
+// ============================================================
+
+let shelfReviewBooks = [];
+
+function openShelfReviewModal(identifiedBooks) {
+  shelfReviewBooks = identifiedBooks.map((b, i) => ({
+    tempId: 'shelf_' + i,
+    title: (b.title || '').trim(),
+    author: (b.author || '').trim(),
+    readable: b.readable !== false,
+    genre: 'Naskenované z fotky',
+    selected: b.readable !== false // nečitateľné položky predvolene nezaškrtnuté
+  }));
+
+  const readableCount = shelfReviewBooks.filter(b => b.readable).length;
+  const uncertainCount = shelfReviewBooks.length - readableCount;
+  shelfReviewSummary.textContent = `Nájdených ${shelfReviewBooks.length} kníh — ${readableCount} čitateľných` +
+    (uncertainCount > 0 ? `, ${uncertainCount} neisto rozpoznaných (skontroluj pred pridaním).` : '.');
+
+  renderShelfReviewList();
+
+  shelfReviewModal.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    shelfReviewModal.style.opacity = '1';
+    shelfReviewModal.querySelector('.modal-card').style.transform = 'scale(1)';
+  });
+}
+
+function closeShelfReviewModal() {
+  shelfReviewModal.style.opacity = '0';
+  shelfReviewModal.querySelector('.modal-card').style.transform = 'scale(0.97)';
+  setTimeout(() => shelfReviewModal.classList.add('hidden'), 200);
+}
+
+function renderShelfReviewList() {
+  shelfReviewList.innerHTML = shelfReviewBooks.map(b => `
+    <label class="review-row ${b.readable ? '' : 'uncertain'}" data-temp-id="${b.tempId}">
+      <input type="checkbox" class="review-checkbox" data-temp-id="${b.tempId}" ${b.selected ? 'checked' : ''}>
+      <div style="flex:1; min-width:0;">
+        <p class="review-title">${escapeHtml(b.title) || '(bez názvu)'}</p>
+        <p class="review-author">${escapeHtml(b.author) || 'Neznámy autor'}</p>
+        ${!b.readable ? `<p class="review-warning">⚠️ Neisto rozpoznané — skontroluj názov pred pridaním (môžeš upraviť po pridaní cez „✏️ Upraviť“)</p>` : ''}
+      </div>
+    </label>
+  `).join('');
+}
+
+shelfReviewList.addEventListener('change', (e) => {
+  if (!e.target.classList.contains('review-checkbox')) return;
+  const tempId = e.target.dataset.tempId;
+  const book = shelfReviewBooks.find(b => b.tempId === tempId);
+  if (book) book.selected = e.target.checked;
+});
+
+shelfReviewSelectAllBtn.addEventListener('click', () => {
+  shelfReviewBooks.forEach(b => { b.selected = b.readable; });
+  renderShelfReviewList();
+});
+
+shelfReviewCancelBtn.addEventListener('click', closeShelfReviewModal);
+shelfReviewModal.addEventListener('click', (e) => {
+  if (e.target === shelfReviewModal) closeShelfReviewModal();
+});
+
+shelfReviewAddBtn.addEventListener('click', async () => {
+  const toAdd = shelfReviewBooks.filter(b => b.selected && b.title);
+  if (toAdd.length === 0) {
+    closeShelfReviewModal();
+    return;
+  }
+
+  closeShelfReviewModal();
+  showLoader(`Pridávam ${toAdd.length} kníh a hľadám obaly… (0/${toAdd.length})`);
+
+  let count = 0;
+  for (const b of toAdd) {
+    await addBook(b.title, b.author, "Naskenované z fotky", '', true);
+    count++;
+    statusMessage.textContent = `Pridávam ${toAdd.length} kníh… (${count}/${toAdd.length})`;
+  }
+  hideLoader();
+  await fetchAllMissingDetails();
+});
+
+// Rozpozná ISBN z fotky zadnej strany knihy (čiarový kód alebo vytlačené číslo).
+// Vracia samotný ISBN string (alebo null) — volajúci kód rozhoduje, čo s ním urobí.
+async function analyzeIsbnImage(base64ImageData) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
     showError('Pre rozpoznávanie ISBN z fotky najprv vlož svoj Gemini API kľúč do panela vľavo.');
@@ -1638,27 +1737,135 @@ async function analyzeIsbnImage(book, base64ImageData) {
   }
 }
 
+// Celý tok "pridať knihu odfotením ISBN": rozpozná ISBN z fotky, podľa neho
+// dohľadá názov/autora/obal/popis (Open Library, prípadne Google Books)
+// a rovno pridá novú knihu do katalógu.
+async function addBookFromIsbnScan(base64ImageData) {
+  addFlowStatus.textContent = 'Čítam ISBN z fotky…';
+  showLoader('Čítam ISBN z fotky…');
+
+  const isbn = await analyzeIsbnImage(base64ImageData);
+  if (!isbn) {
+    hideLoader();
+    addFlowStatus.textContent = '';
+    return;
+  }
+
+  addFlowStatus.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám knihu…`;
+  statusMessage.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám knihu…`;
+
+  // Skúsime najprv Open Library podľa ISBN (presné, žiadny limit) — z výsledku
+  // chceme aj názov a autora, nie len obal, takže voláme priamo s jscmd=data.
+  let title = null, author = null, coverUrl = null, description = null;
+
+  try {
+    const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
+    const res = await fetchWithTimeout(url, 6000);
+    if (res.ok) {
+      const data = await res.json();
+      const book = data['ISBN:' + isbn];
+      if (book) {
+        title = book.title || null;
+        author = (book.authors || []).map(a => a.name).join(' / ') || null;
+        coverUrl = book.cover?.large || book.cover?.medium || null;
+        description = typeof book.notes === 'string' ? book.notes : (book.excerpts?.[0]?.text || null);
+      }
+    }
+  } catch (e) {
+    console.error('Chyba pri vyhľadávaní podľa ISBN na Open Library:', e);
+  }
+
+  // Ak Open Library nemá ani názov, skúsime Google Books (môže mať iné pokrytie).
+  if (!title) {
+    try {
+      const booksApiKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
+      let url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}&maxResults=1`;
+      if (booksApiKey) url += `&key=${encodeURIComponent(booksApiKey)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const info = data.items?.[0]?.volumeInfo;
+        if (info) {
+          title = info.title || null;
+          author = (info.authors || []).join(' / ') || null;
+          if (!coverUrl) coverUrl = info.imageLinks?.thumbnail || null;
+          if (!description) description = info.description || null;
+        }
+      }
+    } catch (e) {
+      console.error('Chyba pri vyhľadávaní podľa ISBN na Google Books:', e);
+    }
+  }
+
+  hideLoader();
+  addFlowStatus.textContent = '';
+  statusMessage.textContent = '';
+
+  if (!title) {
+    showError(`ISBN ${isbn} sa rozpoznalo, ale knihu sa nepodarilo dohľadať v žiadnej databáze. Skús ju pridať ručne a ISBN doplň cez „✏️ Upraviť“.`);
+    return;
+  }
+
+  const newBook = {
+    id: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    title: title.trim(),
+    author: (author || '').trim(),
+    genre: 'Naskenované z fotky',
+    originalTitle: '',
+    isbn: isbn,
+    coverUrl: coverUrl || null,
+    description: description || null,
+    sourcesTried: { openLibraryIsbn: coverUrl ? 'found' : 'empty' },
+    createdAt: Date.now()
+  };
+  allBooks.unshift(newBook);
+  saveBooks(true);
+  filterAndRenderBooks();
+  addFlowStatus.textContent = `Pridané: „${newBook.title}“.`;
+}
+
 // ============================================================
 // Event listeners
 // ============================================================
 
-imageUpload.addEventListener('change', (event) => {
+isbnAddUpload.addEventListener('change', (event) => {
   const file = event.target.files[0];
-  if (file) {
-    fileNameDisplay.textContent = `Vybraný súbor: ${file.name}`;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
-      analyzeImage(base64String);
-    };
-    reader.onerror = () => showError("Chyba pri načítavaní súboru.");
-    reader.readAsDataURL(file);
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
+    addBookFromIsbnScan(base64String);
+  };
+  reader.onerror = () => showError("Chyba pri načítavaní súboru.");
+  reader.readAsDataURL(file);
+  isbnAddUpload.value = '';
+});
+
+shelfAddUpload.addEventListener('change', (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
+    analyzeImage(base64String);
+  };
+  reader.onerror = () => showError("Chyba pri načítavaní súboru.");
+  reader.readAsDataURL(file);
+  shelfAddUpload.value = '';
+});
+
+openManualAddBtn.addEventListener('click', () => {
+  const isHidden = manualAddPanel.style.display === 'none';
+  manualAddPanel.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    manualAddPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    bookTitleInput.focus();
   }
 });
 
 addBookForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  addBook(bookTitleInput.value, bookAuthorInput.value, bookGenreInput.value, bookOriginalTitleInput.value);
+  addBook(bookTitleInput.value, bookAuthorInput.value, bookGenreInput.value, bookOriginalTitleInput.value, false, normalizeIsbn(bookIsbnInput.value));
   addBookForm.reset();
   populateGenreSelect();
 });
@@ -1811,7 +2018,7 @@ isbnScanUpload.addEventListener('change', (event) => {
   const reader = new FileReader();
   reader.onloadend = async () => {
     const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
-    const isbn = await analyzeIsbnImage(book, base64String);
+    const isbn = await analyzeIsbnImage(base64String);
 
     if (isbn) {
       book.isbn = isbn;
