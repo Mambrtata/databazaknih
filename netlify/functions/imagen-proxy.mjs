@@ -1,6 +1,3 @@
-// Generovanie obalu: Gemini 2.5 Flash analyzuje knihu → prompt → Gemini 2.0 Flash generuje obrázok
-// Všetko na serveri — obchádza CORS aj rate limit problém pri priamom volaní z prehliadača.
-
 async function fetchWithRetry(url, options, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     const res = await fetch(url, options);
@@ -23,69 +20,43 @@ export default async (req) => {
       });
     }
 
-    // Krok 1: Gemini Flash navrhne vizuálny prompt
-    const contextPrompt = `You are an expert book cover art director. Write a detailed visual prompt for an AI image generator to create an authentic book cover.
+    const imagePrompt = `Book cover for "${title}" by ${author || 'unknown'}. Genre: ${genre || 'fiction'}. Year: ${year || 'unknown'}. ${description ? description.slice(0, 200) : ''} Create an authentic, period-appropriate book cover illustration. Rich colors, professional composition, artistic style matching the era and genre. No text, no letters, no title on the image.`;
 
-Book: "${title}"
-Author: ${author || 'unknown'}
-Genre: ${genre || 'unknown'}
-Year: ${year || 'unknown'}
-Description: ${description ? description.slice(0, 300) : 'not available'}
+    // Nano Banana 2 (gemini-3.1-flash-image) — aktuálny stable model pre generovanie obrázkov
+    // Fallback: gemini-3-pro-image
+    const models = ['gemini-3.1-flash-image', 'gemini-3-pro-image'];
 
-Write ONLY the image prompt (2-3 sentences):
-- Start with: "Book cover for '${title}' by ${author || 'unknown'},"
-- Visual style matching the era and genre
-- Key visual elements, mood, color palette
-- End with: "Professional book cover illustration, no text, no letters, no title."
+    let lastErr = null;
+    for (const model of models) {
+      const res = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: imagePrompt }] }],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+          })
+        }
+      );
 
-Respond with the prompt only.`;
+      const data = await res.json();
 
-    const analysisRes = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: contextPrompt }] }],
-          generationConfig: { maxOutputTokens: 200, temperature: 0.7 }
-        })
+      if (res.status === 404 || res.status === 400) {
+        lastErr = data?.error?.message || `HTTP ${res.status} model=${model}`;
+        continue;
       }
-    );
 
-    if (!analysisRes.ok) {
-      const err = await analysisRes.json().catch(() => ({}));
-      return new Response(JSON.stringify({ error: err?.error?.message || `Analysis failed: ${analysisRes.status}` }), {
-        status: analysisRes.status, headers: { 'Content-Type': 'application/json' }
+      data._prompt = imagePrompt;
+      data._model = model;
+      return new Response(JSON.stringify(data), {
+        status: res.status,
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    const analysisData = await analysisRes.json();
-    const imagePrompt = analysisData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!imagePrompt) {
-      return new Response(JSON.stringify({ error: 'No prompt generated' }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Krok 2: Gemini 2.0 Flash generuje obrázok
-    const imageRes = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: imagePrompt }] }],
-          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
-        })
-      }
-    );
-
-    const imageData = await imageRes.json();
-    // Pridáme použitý prompt do odpovede pre debug
-    imageData._prompt = imagePrompt;
-    return new Response(JSON.stringify(imageData), {
-      status: imageRes.status,
-      headers: { 'Content-Type': 'application/json' }
+    return new Response(JSON.stringify({ error: lastErr || 'All models failed' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (err) {
