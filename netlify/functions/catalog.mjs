@@ -1,36 +1,52 @@
-// Netlify serverless funkcia: /​.netlify/functions/catalog
-// Slúži ako jednoduché REST API pre zdieľaný katalóg kníh, uložený
-// v Netlify Blobs (zabudované úložisko, žiadny externý účet potrebný).
+// Netlify serverless funkcia: /.netlify/functions/catalog
+// REST API pre katalóg kníh, uložený v Netlify Blobs — KAŽDÝ PRIHLÁSENÝ
+// POUŽÍVATEĽ MÁ VLASTNÝ, ODDELENÝ KATALÓG (kľúč v úložisku je odvodený
+// od jeho Identity user.id, nie jeden spoločný kľúč pre všetkých).
 //
-// GET  /.netlify/functions/catalog        -> vráti celý katalóg (JSON)
-// PUT  /.netlify/functions/catalog        -> nahradí celý katalóg (telo: { books: [...] })
+// GET  /.netlify/functions/catalog  -> vráti katalóg prihláseného používateľa
+// PUT  /.netlify/functions/catalog  -> nahradí katalóg prihláseného používateľa
+//                                       (telo: { books: [...], publicEnabled: bool })
 //
-// Toto úložisko je VEREJNÉ pre kohokoľvek, kto má URL tejto stránky —
-// nie je tu žiadne prihlasovanie. Hodí sa na osobné/rodinné použitie,
-// nie na verejne zdieľanú stránku, kde by cudzí ľudia mohli dáta meniť.
+// Vyžaduje platný Netlify Identity JWT v hlavičke Authorization: Bearer <token>.
+// Bez neho vracia 401 — dáta nie sú prístupné anonymne.
+//
+// Pre READ-ONLY verejný náhľad knižnice (keď ju vlastník chce niekomu ukázať
+// bez prihlásenia) slúži samostatná funkcia public-catalog.mjs — táto funkcia
+// tu nikdy nevracia dáta bez platného prihlásenia.
 
 import { getStore } from '@netlify/blobs';
+import { getUser } from '@netlify/identity';
 
 const STORE_NAME = 'kniznica-katalog';
-const KEY = 'books';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
 export default async (req) => {
-  const store = getStore(STORE_NAME);
-
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  const user = await getUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Pre prístup ku katalógu sa musíš prihlásiť.' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
+  // Kľúč v Netlify Blobs je viazaný na konkrétneho používateľa — každý vidí
+  // a upravuje len svoj vlastný katalóg, nikdy katalóg niekoho iného.
+  const key = 'books-' + user.id;
+  const store = getStore(STORE_NAME);
+
   if (req.method === 'GET') {
     try {
-      const data = await store.get(KEY, { type: 'json' });
-      return new Response(JSON.stringify(data || { books: [] }), {
+      const data = await store.get(key, { type: 'json' });
+      return new Response(JSON.stringify(data || { books: [], publicEnabled: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
@@ -51,8 +67,20 @@ export default async (req) => {
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
       }
-      await store.setJSON(KEY, { books: body.books, updatedAt: new Date().toISOString() });
-      return new Response(JSON.stringify({ ok: true, bookCount: body.books.length }), {
+      // publicEnabled je nepovinné — ak chýba, zachováme predošlú hodnotu
+      // (aby PUT volania, ktoré ho nepošlú, omylom nevypli verejný režim).
+      let publicEnabled = body.publicEnabled;
+      if (typeof publicEnabled !== 'boolean') {
+        const existing = await store.get(key, { type: 'json' });
+        publicEnabled = existing?.publicEnabled || false;
+      }
+      await store.setJSON(key, {
+        books: body.books,
+        publicEnabled,
+        ownerLabel: user.email ? user.email.split('@')[0] : 'Knižnica',
+        updatedAt: new Date().toISOString(),
+      });
+      return new Response(JSON.stringify({ ok: true, bookCount: body.books.length, publicEnabled }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });

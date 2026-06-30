@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script defer src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <style>
   :root{
     --bg: #FAFAF8;
@@ -246,29 +247,26 @@
 
   /* ===== Book card ===== */
   .book-card{
-    display:flex; flex-direction:column;
+    display:flex; flex-direction:column; cursor:pointer;
   }
   .book-cover{
     aspect-ratio:2/3; width:100%; flex-shrink:0; background:var(--bg-sunk);
     display:flex; align-items:center; justify-content:center; overflow:hidden;
     border-radius:8px; position:relative; transition:transform .2s ease;
   }
-  .book-card:hover .book-cover{transform:translateY(-3px);}
+  .book-card:hover .book-cover{transform:translateY(-3px); box-shadow:0 10px 24px -10px rgba(0,0,0,0.25);}
   .book-cover img{width:100%; height:100%; object-fit:cover; display:block;}
   .book-body{padding:10px 2px 0; display:flex; flex-direction:column; flex-grow:1;}
   .book-title{font-family:'Fraunces',serif; font-weight:600; font-size:14px; line-height:1.3; margin:0 0 3px; flex-grow:1;}
-  .book-author{font-size:12px; color:var(--ink-soft); margin:0 0 10px;}
-  .book-actions{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:auto; padding-top:8px;}
-  .book-actions button{
-    font-size:11px; font-weight:600; padding:6px 4px; border-radius:6px;
-    cursor:pointer; border:1px solid var(--line); font-family:'Inter',sans-serif;
-    background:var(--card); color:var(--ink-mid); white-space:nowrap;
+  .book-author{font-size:12px; color:var(--ink-soft); margin:0;}
+  .card-delete-btn{
+    position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%;
+    background:rgba(28,27,25,0.55); color:#fff; border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+    opacity:0; transition:opacity .15s ease; backdrop-filter:blur(2px);
   }
-  .detail-btn:hover{border-color:var(--accent); color:var(--accent);}
-  .delete-btn:hover{border-color:var(--danger); color:var(--danger);}
-  .cover-btn:hover{border-color:var(--ink-soft); color:var(--ink);}
-  .rescan-btn:hover{border-color:var(--accent); color:var(--accent);}
-  .rescan-btn:disabled{opacity:0.5; cursor:default;}
+  .book-card:hover .card-delete-btn{opacity:1;}
+  .card-delete-btn:hover{background:var(--danger);}
 
   .book-spine{
     width:100%; height:100%; display:flex; flex-direction:column;
@@ -328,6 +326,13 @@
   .close-btn:hover{background:var(--bg-sunk);}
   .close-btn:disabled{opacity:0.5; cursor:default;}
 
+  .more-menu-item{
+    display:block; width:100%; text-align:left; padding:10px 12px; border-radius:7px;
+    border:none; background:none; cursor:pointer; font-size:13.5px; font-family:'Inter',sans-serif;
+    color:var(--ink-mid); white-space:nowrap;
+  }
+  .more-menu-item:hover{background:var(--bg-sunk); color:var(--ink);}
+
   .review-row{
     display:flex; align-items:flex-start; gap:12px; padding:10px 12px;
     border:1px solid var(--line); border-radius:8px; background:var(--card);
@@ -361,7 +366,15 @@
   </div>
 </div>
 
-<div class="wrap">
+<!-- Prihlasovacia obrazovka — viditeľná, kým sa používateľ neprihlási -->
+<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:18px; padding:24px; text-align:center;">
+  <h1 style="font-family:'Fraunces',serif; font-size:36px; font-weight:600; margin:0;">Knižnica<span style="color:var(--accent);">.</span></h1>
+  <p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px; max-width:360px;">Osobný katalóg kníh — prihlás sa alebo si vytvor účet, aby si videl svoju knižnicu.</p>
+  <button id="loginBtn" class="btn btn-primary" style="padding:12px 28px;">Prihlásiť sa / Registrovať</button>
+  <p id="loginStatus" style="font-size:13px; color:var(--ink-soft); margin-top:4px;"></p>
+</div>
+
+<div id="appRoot" class="wrap" style="display:none;">
 
   <header class="top">
     <div class="title-block">
@@ -396,6 +409,35 @@
         </div>
 
         <div class="api-box">
+          <label for="languageSelect">Jazyk knižnice</label>
+          <select id="languageSelect" style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--card); color:var(--ink); font-family:'Inter',sans-serif;">
+            <option value="sk">Slovenčina</option>
+            <option value="cs">Čeština</option>
+            <option value="en">Angličtina</option>
+            <option value="de">Nemčina</option>
+            <option value="pl">Poľština</option>
+            <option value="hu">Maďarčina</option>
+            <option value="fr">Francúzština</option>
+            <option value="es">Španielčina</option>
+            <option value="it">Taliančina</option>
+          </select>
+          <p class="hint">Nové popisy kníh (z Open Library/Google Books) sa pri dopĺňaní automaticky preložia do tohto jazyka — vyžaduje Gemini API kľúč vyššie.</p>
+        </div>
+
+        <div class="api-box">
+          <label>Zdieľanie knižnice</label>
+          <p class="hint" style="margin-top:0; margin-bottom:10px;">Zapni, ak chceš niekomu poslať odkaz na prezeranie tvojej knižnice (bez možnosti upravovať, bez prihlásenia).</p>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; margin-bottom:8px;">
+            <input type="checkbox" id="publicToggle"> Verejný náhľad zapnutý
+          </label>
+          <div id="publicLinkBox" style="display:none; gap:6px;">
+            <input type="text" id="publicLinkInput" readonly style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; background:var(--bg-sunk); color:var(--ink-soft); margin-bottom:6px;">
+            <button id="copyPublicLinkBtn" class="btn btn-outline" style="width:100%; font-size:13px; padding:8px 10px;">📋 Kopírovať odkaz</button>
+          </div>
+          <p class="api-status" id="publicStatus"></p>
+        </div>
+
+        <div class="api-box">
           <label>Záloha katalógu</label>
           <p class="hint" style="margin-top:0; margin-bottom:10px;">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -418,10 +460,9 @@
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:12px;">
 
           <div style="border:1px solid var(--line); border-radius:10px; padding:16px;">
-            <p style="margin:0 0 4px; font-weight:600; font-size:14.5px;">📖 Odfotiť ISBN</p>
-            <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft);">Jedna kniha — odfoť čiarový kód/ISBN, automaticky sa dohľadajú údaje.</p>
-            <input type="file" id="isbnAddUpload" accept="image/*" capture="environment" style="display:none;">
-            <label for="isbnAddUpload" class="btn btn-outline" style="cursor:pointer; width:100%; justify-content:center;">📷 Odfotiť ISBN</label>
+            <p style="margin:0 0 4px; font-weight:600; font-size:14.5px;">📖 Sken ISBN</p>
+            <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft);">Jedna kniha — namier kameru na čiarový kód, rozpozná sa automaticky.</p>
+            <button id="openIsbnScanBtn" class="btn btn-outline" style="width:100%; justify-content:center;">📷 Sken ISBN</button>
           </div>
 
           <div style="border:1px solid var(--line); border-radius:10px; padding:16px;">
@@ -523,11 +564,10 @@
     </main>
   </div>
 
-  <footer class="foot">Katalóg žije len v tomto prehliadači — knihy sa ukladajú lokálne (localStorage), nie na server.<br>Ak vidíš chyby pri sťahovaní obalov, skús stránku spustiť cez priložený súbor <strong>spustit-server.bat</strong> namiesto priameho otvorenia index.html.</footer>
+  <footer class="foot">Tvoja knižnica je viazaná na tvoj účet a zdieľaná naprieč zariadeniami, kde sa prihlásiš. <a href="#" id="logoutBtn" style="color:var(--ink-soft); text-decoration:underline;">Odhlásiť sa</a></footer>
 </div>
 
 <input type="file" id="customCoverUpload" accept="image/*" style="display:none;">
-<input type="file" id="isbnScanUpload" accept="image/*" capture="environment" style="display:none;">
 
 <!-- Modal -->
 <div id="bookModal" class="modal-overlay hidden">
@@ -570,16 +610,29 @@
         </div>
 
       </div>
-      <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;">
+
+      <!-- Primárne akcie — vždy viditeľné -->
+      <div id="modalPrimaryActions" style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; align-items:center;">
         <button id="modalEditBtn" class="close-btn">✏️ Upraviť</button>
-        <button id="modalSaveBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent); display:none;">Uložiť zmeny</button>
-        <button id="modalCancelEditBtn" class="close-btn" style="display:none;">Zrušiť</button>
         <button id="modalRescanBtn" class="close-btn">🔄 Hľadať znova</button>
-        <button id="modalScanIsbnBtn" class="close-btn">📷 Odfotiť ISBN</button>
-        <button id="modalGeminiSearchBtn" class="close-btn">🔎 Hľadať cez Gemini (web)</button>
-        <button id="modalTranslateBtn" class="close-btn" style="display:none;">🌐 Preložiť popis</button>
         <button id="modalCoverBtn" class="close-btn">📷 Nahrať obal</button>
+
+        <div style="position:relative; margin-left:auto;">
+          <button id="modalMoreBtn" class="close-btn" title="Ďalšie možnosti">⋯ Viac</button>
+          <div id="modalMoreMenu" style="display:none; position:absolute; bottom:calc(100% + 6px); right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 14px 36px -12px rgba(0,0,0,0.25); padding:6px; min-width:220px; z-index:5;">
+            <button id="modalScanIsbnBtn" class="more-menu-item">📷 Sken ISBN</button>
+            <button id="modalGeminiSearchBtn" class="more-menu-item">🔎 Hľadať cez Gemini (web)</button>
+            <button id="modalTranslateBtn" class="more-menu-item" style="display:none;">🌐 Preložiť popis</button>
+          </div>
+        </div>
+
         <button id="closeModal" class="close-btn" style="background:var(--ink); color:#fff; border-color:var(--ink);">Zavrieť</button>
+      </div>
+
+      <!-- Akcie editovacieho režimu — zobrazia sa len počas úpravy -->
+      <div id="modalEditActions" style="display:none; gap:10px; margin-top:18px; flex-wrap:wrap;">
+        <button id="modalSaveBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">Uložiť zmeny</button>
+        <button id="modalCancelEditBtn" class="close-btn">Zrušiť</button>
       </div>
     </div>
   </div>
@@ -615,6 +668,33 @@
           <strong>Nahradiť</strong> — úplne nahradí aktuálny katalóg importovaným
         </button>
         <button id="importCancelBtn" class="close-btn" style="text-align:left; padding:14px 16px;">Zrušiť</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Live sken ISBN — kamera s automatickou detekciou čiarového kódu.
+     Funguje len v prehliadačoch s BarcodeDetector API (Chrome/Edge na
+     Androide aj desktope); na Safari/iOS sa zobrazí fallback na výber súboru. -->
+<div id="isbnScanModal" class="modal-overlay hidden">
+  <div class="modal-card" style="flex-direction:column; max-width:480px;">
+    <div style="padding:24px 26px;">
+      <h2 style="font-size:19px; margin:0 0 4px;">Sken ISBN</h2>
+      <p id="isbnScanStatus" style="margin:0 0 14px; font-size:13px; color:var(--ink-soft);">Namier kameru na čiarový kód na zadnej strane knihy…</p>
+
+      <div id="isbnScanVideoWrap" style="position:relative; border-radius:12px; overflow:hidden; background:#111; aspect-ratio:4/3; display:none;">
+        <video id="isbnScanVideo" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+        <div style="position:absolute; inset:18%; border:2px solid rgba(255,255,255,0.6); border-radius:8px; pointer-events:none;"></div>
+      </div>
+
+      <div id="isbnScanFallback" style="display:none; text-align:center; padding:24px 12px; background:var(--bg-sunk); border-radius:12px;">
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 14px;">Tento prehliadač nepodporuje živý sken čiarového kódu (typicky Safari/iPhone). Odfoť/vyber fotku ISBN namiesto toho:</p>
+        <label for="isbnScanFallbackUpload" class="btn btn-outline" style="cursor:pointer;">📷 Vybrať fotku</label>
+        <input type="file" id="isbnScanFallbackUpload" accept="image/*" capture="environment" style="display:none;">
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button id="isbnScanCancelBtn" class="close-btn" style="flex:1;">Zrušiť</button>
       </div>
     </div>
   </div>

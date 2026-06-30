@@ -2,8 +2,9 @@
   "name": "kniznica-katalog",
   "version": "1.0.0",
   "private": true,
-  "description": "Osobny katalog knih so zdielanym cloud ulozistom cez Netlify Blobs",
+  "description": "Osobny katalog knih s prihlasovanim (Netlify Identity) a per-user ulozistom cez Netlify Blobs",
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^8.1.0",
+    "@netlify/identity": "^1.0.0"
   }
 }

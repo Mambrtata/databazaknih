@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knižnica — verejný náhľad</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAFAF8;
+    --bg-sunk: #F2F1ED;
+    --ink: #1C1B19;
+    --ink-soft: #8A8782;
+    --ink-mid: #55534D;
+    --accent: #1F5C52;
+    --accent-soft: #E3EEEC;
+    --line: #E8E6E0;
+    --card: #FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif;}
+  h1,h2,h3{font-family:'Fraunces',serif; letter-spacing:-0.01em;}
+  .wrap{max-width:1200px; margin:0 auto; padding:32px 24px 80px;}
+  header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:28px; padding-bottom:18px; border-bottom:1px solid var(--line);}
+  header h1{font-size:30px; margin:0;}
+  header .badge{font-size:13px; color:var(--ink-soft);}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:22px;}
+  .genre-section{margin-bottom:36px;}
+  .genre-section h2{font-size:18px; margin:0 0 14px;}
+  .book-card{cursor:pointer;}
+  .book-cover{aspect-ratio:2/3; border-radius:8px; overflow:hidden; background:var(--bg-sunk); margin-bottom:8px; box-shadow:0 2px 10px -4px rgba(0,0,0,0.15);}
+  .book-cover img{width:100%; height:100%; object-fit:cover; display:block;}
+  .book-spine{width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px; text-align:center;}
+  .spine-title{font-family:'Fraunces',serif; font-weight:600; font-size:13px; line-height:1.3;}
+  .spine-author{font-size:10.5px; margin-top:6px; opacity:0.8;}
+  .book-title{font-size:13.5px; font-weight:600; margin:0 0 2px; line-height:1.3;}
+  .book-author{font-size:12px; color:var(--ink-soft); margin:0;}
+  #emptyState{text-align:center; color:var(--ink-soft); padding:60px 20px; font-size:15px;}
+  .modal-overlay{position:fixed; inset:0; background:rgba(28,27,25,0.55); display:flex; align-items:center; justify-content:center; padding:20px; z-index:50; opacity:0; transition:opacity .2s; }
+  .modal-overlay.hidden{display:none;}
+  .modal-card{background:var(--card); border-radius:16px; max-width:680px; width:100%; max-height:85vh; overflow-y:auto; display:flex; gap:0; transform:scale(0.97); transition:transform .2s;}
+  .modal-cover-col{width:220px; flex-shrink:0; background:var(--bg-sunk); border-radius:16px 0 0 16px; display:flex; align-items:center; justify-content:center; overflow:hidden;}
+  .modal-cover-col img{width:100%; height:100%; object-fit:cover;}
+  .modal-body{padding:28px 30px; flex:1; min-width:0;}
+  .modal-genre-tag{display:inline-block; font-size:11.5px; color:var(--accent); background:var(--accent-soft); padding:4px 11px; border-radius:20px; margin-bottom:14px;}
+  .close-btn{padding:9px 16px; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink); margin-top:16px;}
+</style>
+</head>
+<body>
+
+<div id="content" class="wrap">
+  <header>
+    <h1>Knižnica<span style="color:var(--accent);">.</span></h1>
+    <span class="badge" id="ownerLabel"></span>
+    <span class="badge" id="bookCountLabel"></span>
+  </header>
+  <div id="bookList"></div>
+  <p id="emptyState" style="display:none;"></p>
+</div>
+
+<div id="bookModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-cover-col" id="modalCoverCol"></div>
+    <div class="modal-body">
+      <h2 id="modalTitle" style="font-size:22px; margin:0 0 4px;"></h2>
+      <p id="modalOriginalTitle" style="font-size:13px; color:var(--ink-soft); font-style:italic; margin:0 0 6px; display:none;"></p>
+      <h3 id="modalAuthor" style="font-size:15px; font-weight:500; margin:0 0 12px; color:var(--ink-mid);"></h3>
+      <span class="modal-genre-tag" id="modalGenre"></span>
+      <p id="modalDescription" style="font-size:14px; line-height:1.6; color:var(--ink-mid);"></p>
+      <button class="close-btn" id="closeModalBtn">Zavrieť</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Read-only verejný náhľad knižnice — bez prihlásenia, bez možnosti úprav.
+// Číta userId z URL parametra ?id=, volá public-catalog funkciu.
+
+const params = new URLSearchParams(location.search);
+const userId = params.get('id');
+
+const bookList = document.getElementById('bookList');
+const emptyState = document.getElementById('emptyState');
+const ownerLabel = document.getElementById('ownerLabel');
+const bookCountLabel = document.getElementById('bookCountLabel');
+const bookModal = document.getElementById('bookModal');
+const modalCoverCol = document.getElementById('modalCoverCol');
+const modalTitle = document.getElementById('modalTitle');
+const modalOriginalTitle = document.getElementById('modalOriginalTitle');
+const modalAuthor = document.getElementById('modalAuthor');
+const modalGenre = document.getElementById('modalGenre');
+const modalDescription = document.getElementById('modalDescription');
+
+const SPINE_PALETTE = [
+  { bg: '#EDE6DC', fg: '#5B4A36' }, { bg: '#E3EEEC', fg: '#1F5C52' },
+  { bg: '#F3E3DD', fg: '#8C4A36' }, { bg: '#E6E3F0', fg: '#4B3F7A' },
+  { bg: '#EAF0DD', fg: '#4A5C2E' }, { bg: '#F0E3E8', fg: '#7A3F58' },
+];
+function spineColor(genre) {
+  let hash = 0;
+  for (let i = 0; i < (genre || '').length; i++) hash = genre.charCodeAt(i) + ((hash << 5) - hash);
+  return SPINE_PALETTE[Math.abs(hash) % SPINE_PALETTE.length];
+}
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+let allBooks = [];
+
+async function load() {
+  if (!userId) {
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'Chýba odkaz na knižnicu (parameter "id" v URL).';
+    return;
+  }
+  try {
+    const res = await fetch(`/.netlify/functions/public-catalog?id=${encodeURIComponent(userId)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      emptyState.style.display = 'block';
+      emptyState.textContent = err.error || 'Táto knižnica nie je verejne dostupná.';
+      return;
+    }
+    const data = await res.json();
+    allBooks = data.books || [];
+    ownerLabel.textContent = data.ownerLabel ? `— ${data.ownerLabel}` : '';
+    bookCountLabel.textContent = `${allBooks.length} ${allBooks.length === 1 ? 'kniha' : 'kníh'}`;
+    render();
+  } catch (e) {
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'Nepodarilo sa načítať knižnicu. Skús to znova neskôr.';
+  }
+}
+
+function render() {
+  if (allBooks.length === 0) {
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'Táto knižnica je zatiaľ prázdna.';
+    return;
+  }
+  const byGenre = allBooks.reduce((acc, b) => {
+    const g = b.genre || 'Nezaradené';
+    (acc[g] = acc[g] || []).push(b);
+    return acc;
+  }, {});
+  const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, 'sk'));
+
+  bookList.innerHTML = genreNames.map(genre => `
+    <div class="genre-section">
+      <h2>${escapeHtml(genre)} <span style="color:var(--ink-soft); font-weight:400; font-size:14px;">— ${byGenre[genre].length} kníh</span></h2>
+      <div class="grid">
+        ${byGenre[genre].map(b => bookCardHtml(b)).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  bookList.querySelectorAll('.book-card').forEach(el => {
+    el.addEventListener('click', () => openModal(el.dataset.id));
+  });
+}
+
+function bookCardHtml(b) {
+  const spine = spineColor(b.genre);
+  const coverHtml = b.coverUrl
+    ? `<img src="${escapeHtml(b.coverUrl)}" alt="" loading="lazy">`
+    : `<div class="book-spine" style="background:${spine.bg}; color:${spine.fg};">
+         <span class="spine-title">${escapeHtml(b.title)}</span>
+         <span class="spine-author">${escapeHtml(b.author) || ''}</span>
+       </div>`;
+  return `
+    <div class="book-card" data-id="${escapeHtml(b.id)}">
+      <div class="book-cover">${coverHtml}</div>
+      <p class="book-title">${escapeHtml(b.title)}</p>
+      <p class="book-author">${escapeHtml(b.author) || 'Neznámy autor'}</p>
+    </div>
+  `;
+}
+
+function openModal(id) {
+  const book = allBooks.find(b => b.id === id);
+  if (!book) return;
+
+  modalTitle.textContent = book.title;
+  if (book.originalTitle) {
+    modalOriginalTitle.textContent = book.originalTitle;
+    modalOriginalTitle.style.display = 'block';
+  } else {
+    modalOriginalTitle.style.display = 'none';
+  }
+  modalAuthor.textContent = book.author || 'Neznámy autor';
+  modalGenre.textContent = book.genre || 'Nezaradené';
+  modalDescription.textContent = book.description || 'Popis pre túto knihu nebol nájdený.';
+
+  if (book.coverUrl) {
+    modalCoverCol.innerHTML = `<img src="${escapeHtml(book.coverUrl)}" alt="">`;
+  } else {
+    const spine = spineColor(book.genre);
+    modalCoverCol.innerHTML = `<div class="book-spine" style="background:${spine.bg}; color:${spine.fg}; width:100%; height:100%;">
+      <span class="spine-title" style="font-size:16px;">${escapeHtml(book.title)}</span>
+      <span class="spine-author" style="font-size:12px;">${escapeHtml(book.author) || ''}</span>
+    </div>`;
+  }
+
+  bookModal.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    bookModal.style.opacity = '1';
+    bookModal.querySelector('.modal-card').style.transform = 'scale(1)';
+  });
+}
+
+function closeModal() {
+  bookModal.style.opacity = '0';
+  bookModal.querySelector('.modal-card').style.transform = 'scale(0.97)';
+  setTimeout(() => bookModal.classList.add('hidden'), 200);
+}
+
+document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+bookModal.addEventListener('click', (e) => { if (e.target === bookModal) closeModal(); });
+
+load();
+</script>
+</body>
+</html>
