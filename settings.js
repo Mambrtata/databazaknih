@@ -43,7 +43,8 @@ function escapeHtml(str) {
 }
 
 // --- DOM elementy ---
-const languageSelect = document.getElementById('languageSelect'),
+const uiLanguageSelect = document.getElementById('uiLanguageSelect'),
+  languageSelect = document.getElementById('languageSelect'),
   booksApiKeyInput = document.getElementById('booksApiKeyInput'),
   booksApiKeyStatus = document.getElementById('booksApiKeyStatus'),
   apiKeyInput = document.getElementById('apiKeyInput'),
@@ -124,6 +125,11 @@ booksApiKeyInput.addEventListener('input', () => {
 
 languageSelect.addEventListener('change', () => {
   localStorage.setItem(LANGUAGE_STORAGE, languageSelect.value);
+});
+
+uiLanguageSelect.addEventListener('change', () => {
+  setUiLanguage(uiLanguageSelect.value);
+  applyTranslations();
 });
 
 // ============================================================
@@ -431,6 +437,8 @@ deleteAccountBtn.addEventListener('click', () => {
 
 async function showSettings(user) {
   currentUser = user;
+  applyTranslations();
+  uiLanguageSelect.value = getUiLanguage();
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('settingsRoot').style.display = 'block';
   accountEmail.textContent = user?.email || '';

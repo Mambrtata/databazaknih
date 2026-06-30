@@ -60,10 +60,34 @@ function getUserLanguage() {
   return localStorage.getItem(LANGUAGE_STORAGE) || 'sk';
 }
 
+// Mapuje jazyk knižnice (2-písmenový kód z SUPPORTED_LANGUAGES) na zoznam
+// preferovaných Open Library jazykových kódov (3-písmenové ISO 639-2),
+// zoradených od najpreferovanejšieho. Pre slovenčinu preferujeme aj
+// české vydania — pre staršie/menej známe knihy je české vydanie často
+// jediné dostupné v inom jazyku než angličtina, a je bližšie originálu
+// než čisto anglický preklad.
+const OL_LANGUAGE_PREFERENCE = {
+  sk: ['slo', 'cze'],
+  cs: ['cze', 'slo'],
+  en: ['eng'],
+  de: ['ger'],
+  pl: ['pol'],
+  hu: ['hun'],
+  fr: ['fre'],
+  es: ['spa'],
+  it: ['ita'],
+};
+
+function getPreferredOlLanguages() {
+  return OL_LANGUAGE_PREFERENCE[getUserLanguage()] || ['eng'];
+}
+
 function getLanguageInfo(code) {
   return SUPPORTED_LANGUAGES.find(l => l.code === code) || SUPPORTED_LANGUAGES[0];
 }
 const SORT_PREFERENCE_STORAGE = "domaca_kniznica_sort_pref";
+const VIEW_MODE_STORAGE = "domaca_kniznica_view_mode";
+let currentViewMode = localStorage.getItem(VIEW_MODE_STORAGE) || 'grid';
 
 // Paleta "knižných chrbtov" pre placeholder, keď sa obal nenájde — cyklicky podľa žánru
 const SPINE_PALETTE = [
@@ -86,6 +110,40 @@ function spineColorForGenre(genre) {
 // Sýtejšie verzie tých istých farebných rodín — len pre malé swatch body v sidebar,
 // kde by tlmené "fg" farby z SPINE_PALETTE boli na 7px bodoch takmer nerozoznateľné.
 const SWATCH_PALETTE = ['#2F7A6C', '#A6855E', '#5C7A99', '#C17A5E', '#7A8F5E', '#8F6B8F', '#4F7A7A', '#A6904F'];
+
+// Hue (odtieň, 0-360°) pre každý žáner — používa sa len v knižnej poličke
+// na veľmi jemné, takmer biele zafarbenie chrbtov (pozri shelfSpineColor).
+// Rovnaké poradie ako GENRES, cyklicky.
+const SHELF_HUE_PALETTE = [25, 95, 8, 145, 50, 200, 35, 70]; // širšie zemité spektrum: terakota, oliva, tehlová, šalviová, okrová, bridlicová, horčicová, mach
+
+// Vygeneruje jemný gradient pre chrbát knihy — odtieň podľa žánru
+// (konzistentný naprieč celou kategóriou). Intenzita farby je pre KAŽDÚ
+// knihu iná — niektoré knihy majú farbu sotva badateľnú (takmer biele),
+// iné majú plnú intenzitu (MAX_SAT/MAX_CONTRAST), väčšina niečo medzi —
+// presne ako majú skutočné knihy v rámci tej istej farebnej "rodiny"
+// rôzne sýte chrbty, nie všetky rovnako výrazné.
+function shelfSpineColor(book) {
+  const idx = GENRES.indexOf(book.genre);
+  const hue = SHELF_HUE_PALETTE[(idx >= 0 ? idx : (book.genre || '').length) % SHELF_HUE_PALETTE.length];
+
+  // Deterministická "náhodná" intenzita podľa id knihy — rovnaká kniha má
+  // vždy rovnakú farbu pri každom vykreslení, nemení sa pri každom reloade.
+  let seed = 0;
+  for (let i = 0; i < book.id.length; i++) seed = (seed * 31 + book.id.charCodeAt(i)) % 1000;
+  const intensity = seed / 1000; // 0 = takmer biela, 1 = maximálna farba (horný limit)
+
+  const MAX_SAT = 34;      // sýtosť pri intensity=1 (zhoduje sa s predošlým "max" stavom)
+  const MAX_CONTRAST = 9;  // rozdiel okraj/stred pri intensity=1
+
+  const satBase = intensity * MAX_SAT;                  // 0–34%
+  const lightCenter = 98 - intensity * 7;                // 98% (biela) → 91% pri plnej intenzite
+  const lightEdge = lightCenter - intensity * MAX_CONTRAST;
+
+  const center = `hsl(${hue}, ${satBase}%, ${lightCenter}%)`;
+  const edge = `hsl(${hue}, ${satBase}%, ${lightEdge}%)`;
+  const highlight = `hsl(${hue}, ${Math.max(0, satBase - 10)}%, ${Math.min(98, lightCenter + 5)}%)`;
+  return `linear-gradient(to right, ${edge} 0%, ${center} 15%, ${highlight} 50%, ${center} 85%, ${edge} 100%)`;
+}
 
 function swatchColorForGenre(genre) {
   const idx = GENRES.indexOf(genre);
@@ -129,12 +187,17 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   errorMessage = document.getElementById('errorMessage'),
   emptyState = document.getElementById('emptyState'),
   searchInput = document.getElementById('searchInput'),
+  viewGridBtn = document.getElementById('viewGridBtn'),
+  viewShelfBtn = document.getElementById('viewShelfBtn'),
   sortSelect = document.getElementById('sortSelect'),
   bookCount = document.getElementById('bookCount'),
   ledgerCount = document.getElementById('ledgerCount'),
   currentUserLabel = document.getElementById('currentUserLabel'),
   syncStatusEl = document.getElementById('syncStatus'),
   genreListContainer = document.getElementById('genreList'),
+  sidebarPanel = document.getElementById('sidebarPanel'),
+  mobileCategoriesToggle = document.getElementById('mobileCategoriesToggle'),
+  mobileCategoriesActiveLabel = document.getElementById('mobileCategoriesActiveLabel'),
   bookModal = document.getElementById('bookModal'),
   modalCover = document.getElementById('modalCover'),
   modalTitle = document.getElementById('modalTitle'),
@@ -155,6 +218,12 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   scanSubtitle = document.getElementById('scanSubtitle'),
   toastContainer = document.getElementById('toastContainer'),
   fetchMissingBtn = document.getElementById('fetchMissingBtn'),
+  fillAllBtn = document.getElementById('fillAllBtn'),
+  fillAllProgress = document.getElementById('fillAllProgress'),
+  fillAllSummary = document.getElementById('fillAllSummary'),
+  phaseCovers = document.getElementById('phaseCovers'),
+  phaseIsbn = document.getElementById('phaseIsbn'),
+  phaseMeta = document.getElementById('phaseMeta'),
   stopFetchBtn = document.getElementById('stopFetchBtn'),
   sourceOpenLibraryCheckbox = document.getElementById('sourceOpenLibrary'),
   sourceGoogleBooksCheckbox = document.getElementById('sourceGoogleBooks'),
@@ -273,10 +342,10 @@ async function authHeaders() {
 function updateSyncStatusUI() {
   if (!syncStatusEl) return;
   if (cloudSyncAvailable) {
-    syncStatusEl.textContent = '☁️ zdieľané';
+    syncStatusEl.textContent = t('syncShared');
     syncStatusEl.style.color = 'var(--accent)';
   } else {
-    syncStatusEl.textContent = '⚠️ len lokálne';
+    syncStatusEl.textContent = t('syncLocalOnly');
     syncStatusEl.style.color = 'var(--ink-soft)';
   }
 }
@@ -830,7 +899,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
+    return { coverUrl, description: description || t('descNotFound'), publishYear, pageCount, networkError: false, sources };
   }
 
   // ---- 1) Open Library — skúšame ako prvú, nemá denný limit požiadaviek ----
@@ -844,7 +913,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
+    return { coverUrl, description: description || t('descNotFound'), publishYear, pageCount, networkError: false, sources };
   }
 
   // ---- 2) Google Books — druhý zdroj, má denný limit (najmä bez vlastného kľúča) ----
@@ -913,7 +982,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   }
 
   if (coverUrl) {
-    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', publishYear, pageCount, networkError: false, sources };
+    return { coverUrl, description: description || t('descNotFound'), publishYear, pageCount, networkError: false, sources };
   }
 
   // Ak sme hľadali podľa originálneho/EN názvu a nič sme nenašli, skúsime ešte
@@ -922,7 +991,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
     const fallback = await fetchBookDetails(title, author, null, { sourcesTried: sources }, enabled, 0, true);
     if (fallback.coverUrl) return fallback;
     Object.assign(sources, fallback.sources);
-    if (!description && fallback.description && fallback.description !== 'Popis pre túto knihu nebol nájdený.') {
+    if (!description && fallback.description && fallback.description !== t('descNotFound')) {
       description = fallback.description;
     }
     if (!publishYear && fallback.publishYear) publishYear = fallback.publishYear;
@@ -945,7 +1014,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
 
   return {
     coverUrl: coverUrl,
-    description: description || 'Popis pre túto knihu nebol nájdený.',
+    description: description || t('descNotFound'),
     publishYear,
     pageCount,
     networkError: false,
@@ -1016,15 +1085,13 @@ async function fetchFromOpenLibraryByIsbn(isbn) {
   }
 }
 
-// Skúsi nájsť ISBN pre knihu podľa názvu a autora (fulltextové vyhľadávanie,
-// teda menej spoľahlivé než keby sme ISBN odfotili priamo z knihy — výsledok
-// sa preto vždy označí ako 'searched', nie 'scanned', a používateľ ho vidí
-// ako "pravdepodobné" s možnosťou overiť/opraviť).
-async function findIsbnByTitle(title, author) {
+// Samotné volanie — voliteľný languageCode obmedzí výsledky na daný jazyk.
+async function findIsbnByTitleRaw(title, author, languageCode) {
   if (Date.now() < openLibraryRateLimitedUntil) return null;
   try {
     const query = `${title}${author ? ' ' + author : ''}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,isbn&limit=3`;
+    let url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,isbn&limit=3`;
+    if (languageCode) url += `&language=${encodeURIComponent(languageCode)}`;
     const res = await fetchWithTimeout(url, 6000);
     if (res.status === 429) {
       openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
@@ -1048,44 +1115,70 @@ async function findIsbnByTitle(title, author) {
   }
 }
 
-// Skúsi dohľadať rok vydania a počet strán podľa názvu a autora (fulltextové
-// vyhľadávanie na Open Library) — pre knihy, ktoré tieto údaje ešte nemajú.
-async function findMetaByTitle(title, author) {
-  if (Date.now() < openLibraryRateLimitedUntil) return { publishYear: null, pageCount: null };
-  try {
-    const query = `${title}${author ? ' ' + author : ''}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,first_publish_year,number_of_pages_median&limit=3`;
-    const res = await fetchWithTimeout(url, 6000);
-    if (res.status === 429) {
-      openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
-      return { publishYear: null, pageCount: null };
-    }
-    if (!res.ok) return { publishYear: null, pageCount: null };
-
-    const data = await res.json();
-    const docs = data.docs || [];
-    for (const doc of docs) {
-      if (author && doc.author_name && !authorMatches(author, doc.author_name)) continue;
-      if (doc.first_publish_year || doc.number_of_pages_median) {
-        return {
-          publishYear: doc.first_publish_year || null,
-          pageCount: doc.number_of_pages_median || null
-        };
-      }
-    }
-    return { publishYear: null, pageCount: null };
-  } catch (e) {
-    return { publishYear: null, pageCount: null };
+// Skúsi nájsť ISBN pre knihu podľa názvu a autora (fulltextové vyhľadávanie,
+// teda menej spoľahlivé než keby sme ISBN odfotili priamo z knihy — výsledok
+// sa preto vždy označí ako 'searched', nie 'scanned', a používateľ ho vidí
+// ako "pravdepodobné" s možnosťou overiť/opraviť). Najprv skúša vydanie
+// v jazyku knižnice (pozri fetchFromOpenLibrary), až potom akýkoľvek jazyk.
+async function findIsbnByTitle(title, author) {
+  for (const lang of getPreferredOlLanguages()) {
+    const result = await findIsbnByTitleRaw(title, author, lang);
+    if (result) return result;
   }
+  return findIsbnByTitleRaw(title, author, null);
 }
 
-async function fetchFromOpenLibrary(title, author) {
+// Skúsi dohľadať rok vydania a počet strán podľa názvu a autora (fulltextové
+// vyhľadávanie na Open Library) — pre knihy, ktoré tieto údaje ešte nemajú.
+// DÔLEŽITÉ: first_publish_year a number_of_pages_median z /search.json sú
+// vlastnosti DIELA (work) — najstarší rok vydania kedykoľvek, v hocijakom
+// jazyku, a medián počtu strán naprieč VŠETKÝMI vydaniami. To nie je to,
+// čo chceš vedieť o KONKRÉTNOM výtlačku, ktorý vlastníš (napr. slovenský
+// preklad z roku 1975 vs. anglický originál z roku 1950). Navyše Open
+// Library má známy, nedoriešený bug (issue #6226 v ich trackeri), kde
+// jazykový filter na /search.json filtruje len ktoré DIELA sa vôbec
+// vrátia, nie ktoré KONKRÉTNE vydanie sa zobrazí v poli "editions" —
+// čiže spoliehať sa na "vydanie po jazykovom filtri" by ticho vracalo
+// dáta úplne iného vydania. Spoľahlivé riešenie: najprv nájdeme ISBN
+// KONKRÉTNEHO vydania v danom jazyku (rovnaká funkcia ako pri hľadaní
+// ISBN), a z neho cez /api/books vyčítame presný rok a počet strán
+// PRESNE TOHTO vydania — tie dáta sú na rozdiel od search.json viazané
+// na konkrétny výtlačok, nie na dielo ako celok.
+async function findMetaByTitle(title, author) {
+  for (const lang of getPreferredOlLanguages()) {
+    const isbn = await findIsbnByTitleRaw(title, author, lang);
+    if (isbn) {
+      const editionData = await fetchFromOpenLibraryByIsbn(isbn);
+      if (editionData.publishYear || editionData.pageCount) {
+        return { publishYear: editionData.publishYear, pageCount: editionData.pageCount };
+      }
+    }
+  }
+  // Fallback bez jazykového obmedzenia — skúsime znova nájsť konkrétne
+  // vydanie (akéhokoľvek jazyka) cez ISBN, namiesto rovno siahania po
+  // nepresnom first_publish_year diela.
+  const isbn = await findIsbnByTitleRaw(title, author, null);
+  if (isbn) {
+    const editionData = await fetchFromOpenLibraryByIsbn(isbn);
+    if (editionData.publishYear || editionData.pageCount) {
+      return { publishYear: editionData.publishYear, pageCount: editionData.pageCount };
+    }
+  }
+  return { publishYear: null, pageCount: null };
+}
+
+// Samotné volanie Open Library search API — voliteľný parameter
+// languageCode (3-písmenový OL kód, napr. "slo") obmedzí výsledky len
+// na dané jazykové vydanie. Bez neho hľadá naprieč všetkými jazykmi
+// (pôvodné správanie).
+async function fetchFromOpenLibraryRaw(title, author, languageCode) {
   if (Date.now() < openLibraryRateLimitedUntil) {
     return { coverUrl: null, description: null, publishYear: null, pageCount: null };
   }
   try {
     const query = `${title}${author ? ' ' + author : ''}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,key,first_sentence,first_publish_year,number_of_pages_median&limit=3`;
+    let url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,key,first_sentence,first_publish_year,number_of_pages_median&limit=3`;
+    if (languageCode) url += `&language=${encodeURIComponent(languageCode)}`;
     const res = await fetchWithTimeout(url, 6000);
 
     if (res.status === 429) {
@@ -1136,6 +1229,20 @@ async function fetchFromOpenLibrary(title, author) {
     // Timeout alebo iná sieťová chyba — ticho preskočíme na ďalší zdroj.
     return { coverUrl: null, description: null, publishYear: null, pageCount: null };
   }
+}
+
+// Vyhľadá obal/popis na Open Library — najprv skúsi vydanie v jazyku
+// knižnice (napr. pre slovenčinu skúša slovenské, potom české vydanie),
+// a až keď v žiadnom z preferovaných jazykov nič nenájde, padne na
+// pôvodné správanie (hľadanie naprieč všetkými jazykmi). Vďaka tomu
+// appka neprednostne priraďuje anglické vydanie tam, kde existuje
+// vydanie bližšie jazyku, v ktorom používateľ vedie svoju knižnicu.
+async function fetchFromOpenLibrary(title, author) {
+  for (const lang of getPreferredOlLanguages()) {
+    const result = await fetchFromOpenLibraryRaw(title, author, lang);
+    if (result.coverUrl) return result;
+  }
+  return fetchFromOpenLibraryRaw(title, author, null);
 }
 
 
@@ -1290,6 +1397,29 @@ function updateFetchMissingButtonLabel() {
   }
   updateMissingIsbnInfo();
   updateMissingMetaInfo();
+  updateFillAllSummary();
+}
+
+// Súhrnný text v hlavnom paneli "Doplniť chýbajúce údaje" — koľko kníh
+// celkovo má aspoň jeden chýbajúci údaj (obal, ISBN, alebo rok/strany).
+function updateFillAllSummary() {
+  if (!fillAllSummary) return;
+  const needsCover = allBooks.filter(b => !b.coverUrl).length;
+  const needsIsbn = allBooks.filter(b => !b.isbn).length;
+  const needsMeta = allBooks.filter(b => !b.publishYear && !b.pageCount).length;
+  const anyMissing = needsCover > 0 || needsIsbn > 0 || needsMeta > 0;
+
+  if (!anyMissing) {
+    fillAllSummary.textContent = t('allDetailsFilled');
+    fillAllBtn.disabled = true;
+  } else {
+    const parts = [];
+    if (needsCover > 0) parts.push(`${needsCover} ${t('phaseCoversLabel').toLowerCase()}`);
+    if (needsIsbn > 0) parts.push(`${needsIsbn} ${t('phaseIsbnLabel')}`);
+    if (needsMeta > 0) parts.push(`${needsMeta} ${t('phaseMetaLabel').toLowerCase()}`);
+    fillAllSummary.textContent = parts.join(' · ');
+    fillAllBtn.disabled = false;
+  }
 }
 
 function updateMissingIsbnInfo() {
@@ -1722,6 +1852,9 @@ function renderSidebar() {
         <span class="label"><span class="swatch" style="background:${swatchColor};"></span>${escapeHtml(genre)}</span><span class="count">${count}</span></a>`;
   });
   genreListContainer.innerHTML = html;
+  if (mobileCategoriesActiveLabel) {
+    mobileCategoriesActiveLabel.textContent = selectedGenre === 'Všetky' ? '' : selectedGenre;
+  }
 }
 
 function renderBooks(booksToRender, sortKey) {
@@ -1730,15 +1863,20 @@ function renderBooks(booksToRender, sortKey) {
 
   if (allBooks.length === 0) {
     emptyState.style.display = 'block';
-    emptyState.textContent = 'Váš katalóg je zatiaľ prázdny. Pridajte prvú knihu vyššie.';
+    emptyState.textContent = t('emptyLibrary');
     return;
   }
   if (booksToRender.length === 0) {
     emptyState.style.display = 'block';
-    emptyState.textContent = 'Žiadne knihy nezodpovedajú vášmu hľadaniu v tejto kategórii.';
+    emptyState.textContent = t('emptySearch');
     return;
   }
   emptyState.style.display = 'none';
+
+  if (currentViewMode === 'shelf') {
+    renderShelfView(booksToRender, sortKey);
+    return;
+  }
 
   // Pri "Všetky kategórie" so zvoleným triedením, ktoré nie je "Názov A-Z"
   // (napr. "Najnovšie pridané"), zoznam zámerne NEROZDEĽUJEME na žánrové
@@ -1771,6 +1909,86 @@ function renderBooks(booksToRender, sortKey) {
     byGenre[selectedGenre].forEach(b => grid.appendChild(createBookElement(b)));
     bookList.appendChild(grid);
   }
+}
+
+// ============================================================
+// Knižná polica — alternatívne zobrazenie katalógu, knihy ako úzke
+// chrbty vedľa seba (horizontálne), len názov + autor, žiadne ďalšie
+// údaje. Vizuálne pripomína skutočnú policu s knihami.
+// ============================================================
+
+function renderShelfView(booksToRender, sortKey) {
+  const showFlatList = selectedGenre === 'Všetky' && sortKey && sortKey !== 'title-asc';
+
+  if (showFlatList) {
+    bookList.appendChild(createShelfRow(booksToRender));
+    return;
+  }
+
+  const byGenre = booksToRender.reduce((acc, b) => {
+    const g = b.genre || 'Nezaradené';
+    (acc[g] = acc[g] || []).push(b);
+    return acc;
+  }, {});
+
+  if (selectedGenre === 'Všetky') {
+    const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, 'sk'));
+    genreNames.forEach(genre => {
+      const section = document.createElement('div');
+      section.className = 'genre-section';
+      section.innerHTML = `<h3>${escapeHtml(genre)} <span class="tally">— ${byGenre[genre].length} ${byGenre[genre].length === 1 ? 'kniha' : 'kníh'}</span></h3>`;
+      section.appendChild(createShelfRow(byGenre[genre]));
+      bookList.appendChild(section);
+    });
+  } else if (byGenre[selectedGenre]) {
+    bookList.appendChild(createShelfRow(byGenre[selectedGenre]));
+  }
+}
+
+// Šírka chrbta sa odvíja od dĺžky najdlhšieho textu (názov, alebo autor) —
+// pri pevnej výške police platí, že čím dlhší text, tým viac riadkov
+// vertikálneho textu potrebuje, teda tým širší musí byť chrbát, aby sa
+// doň zmestil bez orezania. Výška je rovnaká pre celú policu (rovnako
+// ako majú skutočné knihy v sérii podobnú výšku), len mierne kolíše.
+const SHELF_SPINE_HEIGHT = 280; // px — zväčšené spolu s fontom, nech ostane rovnaký počet riadkov
+const SHELF_CHARS_PER_LINE = 15; // väčší font (16px) — menej znakov sa zmestí na riadok
+
+function shelfSpineWidth(book) {
+  const titleLen = (book.title || '').length;
+  const authorLen = (book.author || '').length;
+  // Názov a autor sú v stĺpcoch vedľa seba (gap medzi nimi), takže ich
+  // riadky sa sčítavajú — odhadneme celkový potrebný počet "riadkov".
+  const titleLines = Math.max(1, Math.ceil(titleLen / SHELF_CHARS_PER_LINE));
+  const authorLines = authorLen ? Math.max(1, Math.ceil(authorLen / SHELF_CHARS_PER_LINE)) + 1 : 0; // +1 riadok rezervy pre dlhšie autorské mená
+  const totalLines = titleLines + authorLines;
+  const minWidth = 28; // aj veľmi krátky názov potrebuje chrbát aspoň takto hrubý
+  const perLineWidth = 19; // približná šírka jedného "riadku" vertikálneho textu (font + padding)
+  return Math.max(minWidth, totalLines * perLineWidth);
+}
+
+function createShelfRow(books) {
+  const wrap = document.createElement('div');
+  wrap.className = 'shelf-row-wrap';
+  const row = document.createElement('div');
+  row.className = 'shelf-row';
+  books.forEach((book, i) => {
+    const spine = document.createElement('div');
+    spine.className = 'shelf-spine';
+    spine.dataset.id = book.id;
+    const width = shelfSpineWidth(book);
+    spine.style.width = width + 'px';
+    spine.style.height = (SHELF_SPINE_HEIGHT + (i % 3) * 6) + 'px';
+    spine.style.background = shelfSpineColor(book);
+    spine.title = `${book.title}${book.author ? ' — ' + book.author : ''}`;
+    spine.innerHTML = `
+      <span class="spine-text">
+        <span class="spine-text-title">${escapeHtml(book.title)}</span>
+        ${book.author ? `<span class="spine-text-author">${escapeHtml(book.author)}</span>` : ''}
+      </span>`;
+    row.appendChild(spine);
+  });
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function createGenreSection(genre, books) {
@@ -1810,7 +2028,7 @@ function createBookElement(book) {
     </div>
     <div class="book-body">
       <p class="book-title" title="${escapeHtml(book.title)}">${escapeHtml(book.title)}</p>
-      <p class="book-author">${escapeHtml(book.author) || 'Neznámy autor'}</p>
+      <p class="book-author">${escapeHtml(book.author) || t('unknownAuthor')}</p>
       ${(book.publishYear || book.pageCount) ? `<p class="book-meta">${[book.publishYear, book.pageCount ? book.pageCount + ' s.' : null].filter(Boolean).join(' · ')}</p>` : ''}
     </div>`;
   return el;
@@ -1859,7 +2077,7 @@ async function handleDetailClick(bookId) {
   } else {
     modalOriginalTitle.style.display = 'none';
   }
-  modalAuthor.textContent = book.author || 'Neznámy autor';
+  modalAuthor.textContent = book.author || t('unknownAuthor');
   modalGenre.textContent = book.genre || 'Nezaradené';
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
@@ -1918,7 +2136,7 @@ async function handleDetailClick(bookId) {
 // v inom jazyku ako slovenčina/čeština (heuristika podľa diakritiky).
 function updateTranslateButtonVisibility(book) {
   const looksForeign = book.description && descriptionLooksForeign(book.description)
-    && book.description !== 'Popis pre túto knihu nebol nájdený.';
+    && book.description !== t('descNotFound');
   modalTranslateBtn.style.display = looksForeign ? 'inline-flex' : 'none';
 }
 
@@ -2090,7 +2308,7 @@ async function saveEditedBook() {
   } else {
     modalOriginalTitle.style.display = 'none';
   }
-  modalAuthor.textContent = book.author || 'Neznámy autor';
+  modalAuthor.textContent = book.author || t('unknownAuthor');
   modalGenre.textContent = book.genre || 'Nezaradené';
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
@@ -2099,7 +2317,7 @@ async function saveEditedBook() {
     rescanFromModal();
   } else {
     modalCover.src = book.coverUrl;
-    modalDescription.textContent = book.description || 'Popis pre túto knihu nebol nájdený.';
+    modalDescription.textContent = book.description || t('descNotFound');
   }
 }
 
@@ -2135,7 +2353,7 @@ async function rescanFromModal() {
     }
     modalDescription.textContent = details.networkError
       ? 'Nepodarilo sa pripojiť k internetu / Google Books API. Skús to znova neskôr.'
-      : (book.description || 'Popis pre túto knihu nebol nájdený.');
+      : (book.description || t('descNotFound'));
   } catch (error) {
     console.error('Neočakávaná chyba pri rescan z modalu:', error);
     modalDescription.textContent = 'Nastala neočakávaná chyba pri hľadaní detailov. Skús to znova.';
@@ -2274,7 +2492,7 @@ function renderShelfReviewList() {
       <input type="checkbox" class="review-checkbox" data-temp-id="${b.tempId}" ${b.selected ? 'checked' : ''}>
       <div style="flex:1; min-width:0;">
         <p class="review-title">${escapeHtml(b.title) || '(bez názvu)'}</p>
-        <p class="review-author">${escapeHtml(b.author) || 'Neznámy autor'}</p>
+        <p class="review-author">${escapeHtml(b.author) || t('unknownAuthor')}</p>
         ${!b.readable ? `<p class="review-warning">⚠️ Neisto rozpoznané — skontroluj názov pred pridaním (môžeš upraviť po pridaní cez „✏️ Upraviť“)</p>` : ''}
       </div>
     </label>
@@ -2684,6 +2902,16 @@ sortSelect.addEventListener('change', () => {
   filterAndRenderBooks();
 });
 
+function setViewMode(mode) {
+  currentViewMode = mode;
+  localStorage.setItem(VIEW_MODE_STORAGE, mode);
+  viewGridBtn.classList.toggle('active', mode === 'grid');
+  viewShelfBtn.classList.toggle('active', mode === 'shelf');
+  filterAndRenderBooks();
+}
+viewGridBtn.addEventListener('click', () => setViewMode('grid'));
+viewShelfBtn.addEventListener('click', () => setViewMode('shelf'));
+
 languageSelect.addEventListener('change', () => {
   localStorage.setItem(LANGUAGE_STORAGE, languageSelect.value);
   showToast(`Jazyk knižnice nastavený na: ${getLanguageInfo(languageSelect.value).label}. Nové popisy sa budú prekladať do tohto jazyka.`, 'success', 5000);
@@ -2695,7 +2923,14 @@ genreListContainer.addEventListener('click', (e) => {
   if (link && link.dataset.genre) {
     selectedGenre = link.dataset.genre;
     filterAndRenderBooks();
+    // Na mobile po výbere kategórie menu rovno zbalíme, nech sa hneď
+    // vidí výsledok (zoznam kníh), nie naďalej rozbalený zoznam kategórií.
+    sidebarPanel.classList.remove('mobile-open');
   }
+});
+
+mobileCategoriesToggle.addEventListener('click', () => {
+  sidebarPanel.classList.toggle('mobile-open');
 });
 
 bookList.addEventListener('click', (event) => {
@@ -2705,6 +2940,11 @@ bookList.addEventListener('click', (event) => {
     if (confirm('Naozaj chceš odstrániť túto knihu z katalógu?')) {
       deleteBook(deleteBtn.dataset.id);
     }
+    return;
+  }
+  const spine = event.target.closest('.shelf-spine');
+  if (spine && spine.dataset.id) {
+    handleDetailClick(spine.dataset.id);
     return;
   }
   const card = event.target.closest('.book-card');
@@ -2953,6 +3193,69 @@ fetchMissingBtn.addEventListener('click', () => {
 bulkFindIsbnBtn.addEventListener('click', bulkFindIsbn);
 bulkFindMetaBtn.addEventListener('click', bulkFindMeta);
 
+// "Doplniť všetko" — spustí postupne všetky tri dopĺňacie operácie
+// (obaly+popisy, ISBN, rok+strany) jedným klikom, s viditeľným priebehom
+// po fázach. Toto je hlavná cesta pre používateľa, ktorý očakáva, že sa
+// chýbajúce údaje doplnia "samé" po hromadnom pridaní kníh (napr. po
+// skene police) — nemusí rozumieť rozdielu medzi týmito troma zdrojmi.
+function setPhaseState(rowEl, state, countText) {
+  rowEl.classList.remove('active', 'done');
+  const icon = rowEl.querySelector('.fill-phase-icon');
+  const count = rowEl.querySelector('.fill-phase-count');
+  if (state === 'active') {
+    rowEl.classList.add('active');
+    icon.textContent = '◐';
+  } else if (state === 'done') {
+    rowEl.classList.add('done');
+    icon.textContent = '✓';
+  } else {
+    icon.textContent = '○';
+  }
+  if (countText !== undefined) count.textContent = countText;
+}
+
+fillAllBtn.addEventListener('click', async () => {
+  fillAllBtn.disabled = true;
+  fillAllProgress.style.display = 'flex';
+  setPhaseState(phaseCovers, 'pending', '');
+  setPhaseState(phaseIsbn, 'pending', '');
+  setPhaseState(phaseMeta, 'pending', '');
+
+  const missingCovers = allBooks.filter(b => !b.coverUrl).length;
+  const missingIsbn = allBooks.filter(b => !b.isbn).length;
+  const missingMeta = allBooks.filter(b => !b.publishYear && !b.pageCount).length;
+
+  if (missingCovers > 0) {
+    setPhaseState(phaseCovers, 'active', `0/${missingCovers}`);
+    lastNetworkErrorShown = false;
+    errorMessage.textContent = '';
+    hideRetryButton();
+    await fetchAllMissingDetails();
+    setPhaseState(phaseCovers, 'done', `${missingCovers}/${missingCovers}`);
+  } else {
+    setPhaseState(phaseCovers, 'done', t('nothingMissing'));
+  }
+
+  if (missingIsbn > 0) {
+    setPhaseState(phaseIsbn, 'active', `0/${missingIsbn}`);
+    await bulkFindIsbn();
+    setPhaseState(phaseIsbn, 'done', `${missingIsbn}/${missingIsbn}`);
+  } else {
+    setPhaseState(phaseIsbn, 'done', t('nothingMissing'));
+  }
+
+  if (missingMeta > 0) {
+    setPhaseState(phaseMeta, 'active', `0/${missingMeta}`);
+    await bulkFindMeta();
+    setPhaseState(phaseMeta, 'done', `${missingMeta}/${missingMeta}`);
+  } else {
+    setPhaseState(phaseMeta, 'done', t('nothingMissing'));
+  }
+
+  fillAllBtn.disabled = false;
+  updateFetchMissingButtonLabel();
+});
+
 stopFetchBtn.addEventListener('click', () => {
   fetchShouldStop = true;
   stopFetchBtn.disabled = true;
@@ -3042,12 +3345,16 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 
 async function init() {
+  applyTranslations();
   populateGenreSelect();
   loadApiKey();
   loadBooksApiKey();
 
   const savedSort = localStorage.getItem(SORT_PREFERENCE_STORAGE);
   if (savedSort) sortSelect.value = savedSort;
+
+  viewGridBtn.classList.toggle('active', currentViewMode === 'grid');
+  viewShelfBtn.classList.toggle('active', currentViewMode === 'shelf');
 
   languageSelect.value = getUserLanguage();
 
@@ -3095,8 +3402,33 @@ function showApp(user) {
 function showLogin() {
   currentUser = null;
   if (currentUserLabel) currentUserLabel.textContent = '';
+  applyTranslations();
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('appRoot').style.display = 'none';
+}
+
+// Zobrazí krátky výber jazyka rozhrania pri úplne prvom prihlásení
+// (registrácii) — predtým, než sa zobrazí samotná appka. Voľba sa
+// uloží a appka sa odvtedy zobrazuje v tomto jazyku (zmeniteľné
+// neskôr v Nastaveniach).
+function showFirstLoginLanguagePicker(onDone) {
+  const modal = document.getElementById('firstLoginLangModal');
+  modal.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    modal.style.opacity = '1';
+    modal.querySelector('.modal-card').style.transform = 'scale(1)';
+  });
+
+  function choose(lang) {
+    setUiLanguage(lang);
+    modal.style.opacity = '0';
+    modal.querySelector('.modal-card').style.transform = 'scale(0.97)';
+    setTimeout(() => modal.classList.add('hidden'), 200);
+    onDone();
+  }
+
+  document.getElementById('chooseLangSk').onclick = () => choose('sk');
+  document.getElementById('chooseLangEn').onclick = () => choose('en');
 }
 
 function setupAuth() {
@@ -3137,8 +3469,16 @@ function setupAuth() {
   });
 
   identity.on('login', (user) => {
-    showApp(user);
+    // Ak appka ešte nikdy nemala uloženú preferenciu jazyka rozhrania pre
+    // toto zariadenie, je to pravdepodobne prvé prihlásenie/registrácia —
+    // opýtame sa rovno na jazyk, predtým než zobrazíme samotnú appku.
+    const hasLangPreference = !!localStorage.getItem(UI_LANGUAGE_STORAGE);
     identity.close();
+    if (!hasLangPreference) {
+      showFirstLoginLanguagePicker(() => showApp(user));
+    } else {
+      showApp(user);
+    }
   });
 
   identity.on('logout', () => {

@@ -100,6 +100,19 @@ zmeny sa neuložia do zdieľaného cloud úložiska.
 
 ## Nové v tejto verzii
 
+- **Knižná polica — druhý spôsob zobrazenia** — prepínač "Mriežka"/"Polica"
+  vedľa vyhľadávania. V poličkovom móde sú knihy zobrazené ako úzke,
+  vysoké chrbty vedľa seba (vertikálny text), len názov a autor, bez
+  ďalších údajov. Kliknutie na chrbát otvára rovnaký detail ako v mriežke.
+  Voľba sa pamätá medzi návštevami.
+- **Lokalizácia rozhrania (slovenčina/angličtina)** — menu, tlačidlá,
+  nadpisy a hlášky appky sa teraz dajú prepnúť medzi SK a EN (nové pole
+  "Jazyk rozhrania" v Nastaveniach). Pri úplne prvom prihlásení sa appka
+  rovno opýta na preferovaný jazyk. Toto je oddelené od existujúceho
+  "Jazyk knižnice" nastavenia, ktoré naďalej rieši len preklad popisov
+  jednotlivých kníh (a podporuje aj ďalších 7 jazykov) — tieto dve veci
+  zámerne nesúvisia.
+
 - **Samostatná stránka Nastavenia** (`nastavenia.html`) — API kľúče, jazyk
   knižnice, zdieľanie knižnice, záloha (export/import) sú presunuté sem
   z preplneného bočného panela. Dostupná cez tlačidlo "⚙️ Nastavenia"
