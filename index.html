@@ -321,10 +321,13 @@
 
         <div class="api-box">
           <label>Záloha katalógu</label>
-          <p class="hint" style="margin-top:0; margin-bottom:10px;">Stiahni si celý katalóg (vrátane obalov a popisov) do jedného súboru, alebo ho prenes na iný počítač/hosting.</p>
+          <p class="hint" style="margin-top:0; margin-bottom:10px;">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="exportBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬇️ Exportovať</button>
-            <button id="importBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬆️ Importovať</button>
+            <button id="exportBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬇️ Exportovať JSON</button>
+            <button id="exportCsvBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬇️ Exportovať CSV</button>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+            <button id="importBtn" class="btn btn-outline" style="flex:1; font-size:13px; padding:8px 10px;">⬆️ Importovať JSON</button>
           </div>
           <input type="file" id="importFileInput" accept=".json" style="display:none;">
           <p class="api-status" id="importStatus"></p>
@@ -492,6 +495,25 @@
         <button id="shelfReviewAddBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">Pridať vybrané</button>
         <button id="shelfReviewSelectAllBtn" class="close-btn">Vybrať všetky čitateľné</button>
         <button id="shelfReviewCancelBtn" class="close-btn">Zrušiť</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal s voľbou pri importe (zlúčiť / nahradiť) -->
+<div id="importChoiceModal" class="modal-overlay hidden">
+  <div class="modal-card" style="flex-direction:column; max-width:520px;">
+    <div style="padding:28px 30px;">
+      <h2 style="font-size:20px; margin:0 0 12px;">Importovať katalóg</h2>
+      <p id="importChoiceSummary" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-soft); line-height:1.5;"></p>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button id="importMergeBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent); text-align:left; padding:14px 16px;">
+          <strong>Zlúčiť</strong> — pridá len nové knihy, duplicity preskočí
+        </button>
+        <button id="importReplaceBtn" class="close-btn" style="text-align:left; padding:14px 16px;">
+          <strong>Nahradiť</strong> — úplne nahradí aktuálny katalóg importovaným
+        </button>
+        <button id="importCancelBtn" class="close-btn" style="text-align:left; padding:14px 16px;">Zrušiť</button>
       </div>
     </div>
   </div>
