@@ -1019,13 +1019,14 @@
         <button id="coverGalleryUrlCancel" class="btn" style="font-size:12px; padding:5px 10px;">Zrušiť</button>
       </div>
     </div>
-    <div style="display:flex; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap;">
-      <button id="coverGalleryGenerateBtn" class="btn btn-primary" style="font-size:13px;">✨ Generovať AI obal</button>
-      <button id="coverGalleryWebSearchBtn" class="btn" style="font-size:13px;">🔎 Hľadať cez Gemini</button>
-      <button id="coverGallerySearchDbBtn" class="btn" style="font-size:13px;">🔍 Hľadať v databázach</button>
-      <button id="coverGalleryUploadBtn" class="btn" style="font-size:13px;">📁 Nahrať súbor</button>
+    <div style="display:flex; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap; align-items:center;">
+      <button id="coverGalleryUploadBtn" class="btn" style="font-size:13px;">📁 Nahrať</button>
+      <button id="coverGalleryGenerateBtn" class="btn btn-primary" style="font-size:13px;">✨ Generovať AI</button>
       <button id="coverGalleryPasteBtn" class="btn" style="font-size:13px;">📋 Paste URL</button>
-      <button id="coverGalleryRemoveBtn" class="btn" style="font-size:13px; color:var(--danger); border-color:var(--danger-soft);">🗑 Odstrániť obal</button>
+      <button id="coverGalleryRemoveBtn" class="btn" style="font-size:13px; color:var(--danger); border-color:var(--danger-soft); margin-left:auto;">🗑 Odstrániť</button>
+      <!-- zachované skryté pre JS kompatibilitu -->
+      <button id="coverGalleryWebSearchBtn" style="display:none;"></button>
+      <button id="coverGallerySearchDbBtn" style="display:none;"></button>
     </div>
   </div>
 </div>

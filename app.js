@@ -3388,7 +3388,45 @@ Respond with the prompt only, no explanation.`;
 modalCoverPickBtn.addEventListener('click', openCoverGallery);
 
 // Tlačidlo AI v riadku ikon — otvorí galériu obalov priamo (bez edit módu)
-modalAiBtn.addEventListener('click', openCoverGallery);
+modalAiBtn.addEventListener('click', async () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+
+  modalAiBtn.disabled = true;
+  modalAiBtn.querySelector('.modal-icon-label').textContent = '…';
+  if (modalErrorMessage) modalErrorMessage.textContent = '';
+
+  const result = await searchViaGeminiWeb(book);
+  if (result) {
+    let changed = false;
+
+    if (result.description && (!book.description || result.description.length > book.description.length)) {
+      book.description = result.description;
+      modalDescription.textContent = book.description;
+      updateTranslateButtonVisibility(book);
+      changed = true;
+    }
+
+    if (result.coverImageUrl) {
+      // Pridáme obal do galérie, nie priamo — nech si používateľ vyberie
+      if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
+        galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
+      }
+      if (modalErrorMessage) modalErrorMessage.innerHTML = `Gemini našiel obal — otvor <strong>Cover</strong> pre výber.`;
+      changed = true;
+    } else if (result.pageUrl) {
+      const linkLabel = result.pageSource || 'stránka';
+      if (modalErrorMessage) modalErrorMessage.innerHTML = `Obal nenašiel priamo — <a href="${escapeHtml(result.pageUrl)}" target="_blank" rel="noopener" style="color:var(--accent);">otvoriť ${escapeHtml(linkLabel)}</a>`;
+    } else if (!result.description) {
+      if (modalErrorMessage) modalErrorMessage.textContent = 'Gemini nenašiel ani popis ani obal.';
+    }
+
+    if (changed) { saveBooks(true); filterAndRenderBooks(); }
+  }
+
+  modalAiBtn.disabled = false;
+  modalAiBtn.querySelector('.modal-icon-label').textContent = 'AI';
+});
 
 coverGalleryCloseBtn.addEventListener('click', () => {
   coverGalleryModal.style.display = 'none';
