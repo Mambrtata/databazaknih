@@ -130,6 +130,12 @@ languageSelect.addEventListener('change', () => {
 uiLanguageSelect.addEventListener('change', () => {
   setUiLanguage(uiLanguageSelect.value);
   applyTranslations();
+  const statusEl = document.getElementById('uiLanguageStatus');
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.textContent = t('uiLanguageSaved');
+    setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+  }
 });
 
 // ============================================================

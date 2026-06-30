@@ -88,12 +88,23 @@
   }
   .add-book-icon-btn .label{font-size:11.5px; font-weight:600;}
 
-  /* ===== Priebeh fáz pri "Doplniť všetko" ===== */
-  .fill-phase-row{display:flex; align-items:center; gap:8px; color:var(--ink-soft);}
+  .add-book-icon-btn-wrap{position:relative; flex:1; display:flex;}
+  .add-book-icon-btn-wrap .add-book-icon-btn{width:100%;}
+  .add-book-more-btn{
+    position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%;
+    border:none; background:transparent; color:var(--ink-soft); font-size:11px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .add-book-more-btn:hover{background:var(--bg-sunk); color:var(--ink);}
+
+  /* ===== Priebeh fáz pri "Doplniť všetko" — teraz v jednom tenkom
+     horizontálnom riadku namiesto stĺpca, zobrazí sa len počas behu. ===== */
+  #fillAllProgress.active{display:flex !important; align-items:center;}
+  .fill-phase-row{display:inline-flex; align-items:center; gap:5px; color:var(--ink-soft);}
   .fill-phase-row.active{color:var(--ink); font-weight:600;}
   .fill-phase-row.done{color:var(--accent);}
-  .fill-phase-icon{font-size:13px; width:14px; display:inline-block; text-align:center;}
-  .fill-phase-count{margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:12px;}
+  .fill-phase-icon{font-size:12px; width:13px; display:inline-block; text-align:center;}
+  .fill-phase-count{font-family:'JetBrains Mono',monospace; font-size:11.5px;}
 
   @media (max-width: 880px){
     .layout{flex-direction:column;}
@@ -289,7 +300,7 @@
 
   /* ===== Book card ===== */
   .book-card{
-    display:flex; flex-direction:column; cursor:pointer;
+    display:flex; flex-direction:column; cursor:pointer; position:relative;
   }
   .book-cover{
     aspect-ratio:2/3; width:100%; flex-shrink:0; background:var(--bg-sunk);
@@ -298,6 +309,7 @@
   }
   .book-card:hover .book-cover{transform:translateY(-3px); box-shadow:0 10px 24px -10px rgba(0,0,0,0.25);}
   .book-cover img{width:100%; height:100%; object-fit:cover; display:block;}
+  .book-cover .book-spine{border-radius:8px; overflow:hidden; width:100%; height:100%;}
   .book-body{padding:10px 2px 0; display:flex; flex-direction:column; flex-grow:1;}
   .book-title{font-family:'Fraunces',serif; font-weight:600; font-size:14px; line-height:1.3; margin:0 0 3px; flex-grow:1;}
   .book-author{font-size:12px; color:var(--ink-soft); margin:0;}
@@ -310,6 +322,17 @@
   }
   .book-card:hover .card-delete-btn{opacity:1;}
   .card-delete-btn:hover{background:var(--danger);}
+  .card-read-badge{
+    position:absolute; bottom:6px; right:6px; width:20px; height:20px; border-radius:50%;
+    background:#2D7D52; color:#fff; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; pointer-events:none;
+  }
+  .card-loan-badge{
+    position:absolute; bottom:38px; left:0; right:0;
+    text-align:center; font-size:10px; font-weight:600;
+    color:#E8A020; text-shadow:0 1px 2px rgba(0,0,0,0.5);
+    pointer-events:none; z-index:2;
+  }
 
   /* ===== Prepínač Mriežka / Polica ===== */
   .view-toggle{display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden;}
@@ -327,16 +350,12 @@
      Vizuálny štýl: minimalistický, biele chrbty s jemným gradientom
      (zaoblenie), čierna škára medzi knihami, sivá polica, čierny text. */
   .shelf-row-wrap{position:relative;}
-  .shelf-row-wrap::after{
-    content:''; position:absolute; top:0; right:0; bottom:26px; width:36px;
-    background:linear-gradient(to right, transparent, var(--bg) 85%);
-    pointer-events:none; z-index:2;
-  }
   .shelf-row{
     display:flex; align-items:flex-end; gap:0; flex-wrap:nowrap;
     padding:0 0 26px; margin-bottom:30px; position:relative;
-    overflow-x:auto; overflow-y:hidden;
+    overflow:hidden;
   }
+  .shelf-lazy-sentinel{height:1px; width:100%;}
   .shelf-row::before{
     content:''; position:absolute; left:-4px; right:-4px; bottom:18px; height:9px;
     background:#9C9A95; border-radius:1px;
@@ -429,6 +448,20 @@
   .close-btn:hover{background:var(--bg-sunk);}
   .close-btn:disabled{opacity:0.5; cursor:default;}
   .close-btn-sm{padding:7px 12px; font-size:12px; border-radius:7px;}
+
+  .modal-icon-btn{
+    min-width:48px; height:auto; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink-mid); cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; padding:7px 8px;
+    transition:background .12s, color .12s; flex-shrink:0;
+  }
+  .modal-icon-btn:hover{background:var(--bg-sunk); color:var(--ink);}
+  .modal-icon-btn:disabled{opacity:0.4; cursor:default;}
+  .modal-icon-btn-close{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .modal-icon-btn-close:hover{background:#000; color:#fff;}
+  .modal-icon-wrap{display:flex; flex-direction:column; align-items:center; gap:3px;}
+  .modal-icon-svg{width:17px; height:17px; flex-shrink:0;}
+  .modal-icon-label{font-size:9.5px; font-weight:600; font-family:'Inter',sans-serif; letter-spacing:0.03em; line-height:1;}
 
   .more-menu-item{
     display:block; width:100%; text-align:left; padding:10px 12px; border-radius:7px;
@@ -577,8 +610,58 @@
             </span>
             <span class="label" data-i18n="manualAddBtnShort">Ručne</span>
           </button>
+
+          <div class="add-book-icon-btn-wrap">
+            <button id="fillAllBtn" class="add-book-icon-btn" data-i18n-title="fillAllHeading" title="Doplniť chýbajúce údaje">
+              <span class="icon-wrap">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><path d="M8 14l3-3 2.5 2.5L19 8"/></svg>
+                <span class="icon-plus" id="fillAllBadge">0</span>
+              </span>
+              <span class="label" data-i18n="startFillAllBtnShort">Doplniť</span>
+            </button>
+            <button id="fillAllMoreBtn" class="add-book-more-btn" data-i18n-title="advancedOptions" title="Pokročilé možnosti">⋯</button>
+            <div id="fillAllMoreMenu" style="display:none; position:absolute; top:calc(100% + 6px); right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 14px 36px -12px rgba(0,0,0,0.25); padding:14px; min-width:260px; z-index:5;">
+              <p data-i18n="advancedOptions" style="margin:0 0 10px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-soft);">Pokročilé možnosti</p>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="sourceOpenLibrary" checked> Open Library
+                </label>
+                <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="sourceGoogleBooks"> Google Books
+                </label>
+                <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="sourceWikidata" checked> Wikidata
+                </label>
+              </div>
+              <p style="margin:12px 0 0; padding-top:10px; border-top:1px solid var(--line); font-size:11.5px; color:var(--ink-soft); line-height:1.6;">
+                <span style="display:flex; align-items:center; gap:5px;"><span style="width:7px; height:7px; border-radius:50%; background:#3F8F5C; display:inline-block; flex-shrink:0;"></span><span data-i18n="isbnLegendGreen">zelené ISBN = odfotené/zadané ručne, isté</span></span>
+                <span style="display:flex; align-items:center; gap:5px; margin-top:4px;"><span style="width:7px; height:7px; border-radius:50%; background:#D9A441; display:inline-block; flex-shrink:0;"></span><span data-i18n="isbnLegendOrange">oranžové ISBN = len dohľadané podľa názvu, over si to</span></span>
+              </p>
+            </div>
+          </div>
         </div>
         <p id="addFlowStatus" style="margin:10px 0 0; font-size:13px; color:var(--ink-soft);"></p>
+
+        <!-- Priebeh po fázach — zobrazí sa LEN počas behu "Doplniť všetko",
+             potom zmizne (na rozdiel od predošlého veľkého panela, ktorý
+             tu zaberal miesto natrvalo). -->
+        <div id="fillAllProgress" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); gap:14px; font-size:12px; flex-wrap:wrap;">
+          <span id="phaseCovers" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseCoversLabel">Obaly a popisy</span><span class="fill-phase-count"></span></span>
+          <span id="phaseIsbn" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseIsbnLabel">ISBN</span><span class="fill-phase-count"></span></span>
+          <span id="phaseMeta" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseMetaLabel">Rok a počet strán</span><span class="fill-phase-count"></span></span>
+          <button id="stopFetchBtn" class="btn btn-outline" style="display:none; padding:3px 10px; font-size:11px;">⏹</button>
+        </div>
+
+        <!-- Skryté pôvodné ovládacie prvky — id-čka zostávajú pre app.js. -->
+        <div style="display:none;">
+          <button id="fetchMissingBtn"></button>
+          <button id="bulkFindIsbnBtn"></button>
+          <button id="bulkFindMetaBtn"></button>
+          <p id="missingCoversInfo"></p>
+          <p id="missingIsbnInfo"></p>
+          <p id="missingMetaInfo"></p>
+          <p id="fillAllSummary"></p>
+        </div>
       </div>
 
 
@@ -592,57 +675,6 @@
           <select id="bookGenre"></select>
           <button type="submit" data-i18n="addBtn" class="btn btn-outline">Pridať</button>
         </form>
-      </div>
-
-      <div class="panel">
-        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
-          <div>
-            <h2 data-i18n="fillAllHeading" style="margin-bottom:4px;">📚 Doplniť chýbajúce údaje</h2>
-            <p id="fillAllSummary" style="margin:0; font-size:13px; color:var(--ink-soft);"></p>
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button id="fillAllBtn" data-i18n="startFillAllBtn" class="btn btn-primary">Doplniť všetko</button>
-            <button id="stopFetchBtn" class="btn btn-outline" style="display:none;">⏹ Zastaviť</button>
-          </div>
-        </div>
-
-        <!-- Priebeh po fázach — viditeľný len počas behu alebo po jeho skončení. -->
-        <div id="fillAllProgress" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:6px; font-size:13px;">
-          <div id="phaseCovers" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseCoversLabel">Obaly a popisy</span><span class="fill-phase-count"></span></div>
-          <div id="phaseIsbn" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseIsbnLabel">ISBN</span><span class="fill-phase-count"></span></div>
-          <div id="phaseMeta" class="fill-phase-row"><span class="fill-phase-icon">○</span> <span data-i18n="phaseMetaLabel">Rok a počet strán</span><span class="fill-phase-count"></span></div>
-        </div>
-
-        <details style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
-          <summary data-i18n="advancedOptions" style="cursor:pointer; font-size:12.5px; color:var(--ink-soft); font-weight:600;">Pokročilé možnosti</summary>
-          <div style="margin-top:12px; display:flex; gap:18px; flex-wrap:wrap;">
-            <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" id="sourceOpenLibrary" checked> Open Library
-            </label>
-            <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" id="sourceGoogleBooks"> Google Books
-            </label>
-            <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" id="sourceWikidata" checked> Wikidata
-            </label>
-          </div>
-          <p style="margin:12px 0 0; font-size:12px; color:var(--ink-soft); line-height:1.5;">
-            <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#3F8F5C; display:inline-block;"></span><span data-i18n="isbnLegendGreen">zelené ISBN = odfotené/zadané ručne, isté</span></span>
-            &nbsp;&nbsp;
-            <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; border-radius:50%; background:#D9A441; display:inline-block;"></span><span data-i18n="isbnLegendOrange">oranžové ISBN = len dohľadané podľa názvu, over si to</span></span>
-          </p>
-          <!-- Skryté pôvodné ovládacie prvky — id-čka zostávajú pre app.js,
-               len tlačidlá samotné už nie sú samostatne zobrazené (nahradilo
-               ich spoločné tlačidlo "Doplniť všetko" vyššie). -->
-          <div style="display:none;">
-            <button id="fetchMissingBtn"></button>
-            <button id="bulkFindIsbnBtn"></button>
-            <button id="bulkFindMetaBtn"></button>
-            <p id="missingCoversInfo"></p>
-            <p id="missingIsbnInfo"></p>
-            <p id="missingMetaInfo"></p>
-          </div>
-        </details>
       </div>
 
       <div id="statusSection">
@@ -671,6 +703,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <input type="text" id="searchInput" data-i18n-placeholder="searchPlaceholder" placeholder="Hľadať názov alebo autora…">
           </div>
+          <button id="filterLoanedBtn" title="Zobraziť len požičané knihy" style="padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--card); color:var(--ink-soft); cursor:pointer; white-space:nowrap;">📤 Požičané</button>
         </div>
       </div>
 
@@ -706,6 +739,28 @@
             <div id="modalLoader" class="modal-loader" style="display:none;"></div>
             <p class="modal-desc" id="modalDescription"></p>
           </div>
+
+          <!-- Požičanie knihy -->
+          <div id="modalLoanSection" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+            <div id="modalLoanInfo" style="display:none; font-size:13px; color:var(--ink-soft); margin-bottom:8px;">
+              📖 Požičané: <strong id="modalLoanName"></strong> <span id="modalLoanDate" style="color:var(--ink-soft);"></span>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <button id="modalLoanBtn" class="btn" style="font-size:12.5px; padding:6px 12px;">📤 Požičané</button>
+              <button id="modalReturnBtn" class="btn" style="font-size:12.5px; padding:6px 12px; display:none;">↩ Vrátená</button>
+              <button id="modalWhatsAppBtn" style="display:none; background:none; border:none; cursor:pointer; font-size:20px; padding:4px;" title="Pripomenúť cez WhatsApp">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </button>
+            </div>
+            <!-- Formulár na zadanie mena -->
+            <div id="modalLoanForm" style="display:none; margin-top:10px; display:none;">
+              <input type="text" id="modalLoanNameInput" placeholder="Meno kamaráta…" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
+              <div style="display:flex; gap:8px;">
+                <button id="modalLoanConfirmBtn" class="btn btn-primary" style="font-size:12.5px; padding:6px 14px;">Uložiť</button>
+                <button id="modalLoanCancelBtn" class="btn" style="font-size:12.5px; padding:6px 12px;">Zrušiť</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Editovací režim -->
@@ -735,21 +790,63 @@
       </div>
 
       <!-- Primárne akcie — vždy viditeľné -->
-      <div id="modalPrimaryActions" style="display:flex; gap:8px; margin-top:18px; flex-wrap:wrap; align-items:center;">
-        <button id="modalEditBtn" data-i18n="editBtn" class="close-btn close-btn-sm">✏️ Upraviť</button>
-        <button id="modalRescanBtn" data-i18n="rescanBtn" class="close-btn close-btn-sm">🔄 Hľadať znova</button>
+      <div id="modalPrimaryActions" style="display:flex; gap:6px; margin-top:18px; align-items:center; flex-wrap:wrap;">
 
-        <div style="position:relative; margin-left:auto;">
-          <button id="modalMoreBtn" class="close-btn close-btn-sm" data-i18n="moreBtn" title="Ďalšie možnosti">⋯ Viac</button>
-          <div id="modalMoreMenu" style="display:none; position:absolute; bottom:calc(100% + 6px); right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 14px 36px -12px rgba(0,0,0,0.25); padding:6px; min-width:220px; z-index:5;">
-            <button id="modalScanIsbnBtn" class="more-menu-item">📷 Sken ISBN</button>
-            <button id="modalGeminiSearchBtn" data-i18n="geminiSearchBtn" class="more-menu-item">🔎 Hľadať cez Gemini (web)</button>
-            <button id="modalTranslateBtn" data-i18n="translateBtn" class="more-menu-item" style="display:none;">🌐 Preložiť popis</button>
-          </div>
-        </div>
+        <button id="modalEditBtn" class="modal-icon-btn" data-i18n-title="editBtn" title="Upraviť">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M5 20l.7-3.5L15.5 7 19 10.5 9.2 20.2 5 20z"/><path d="M13.5 8.5l3.5 3.5"/></svg>
+            <span class="modal-icon-label" data-i18n="editBtnShort">Upraviť</span>
+          </span>
+        </button>
 
-        <button id="closeModal" data-i18n="closeBtn" class="close-btn close-btn-sm" style="background:var(--ink); color:#fff; border-color:var(--ink);">Zavrieť</button>
+        <button id="modalReadBtn" class="modal-icon-btn" title="Označiť ako prečítané">
+          <span class="modal-icon-wrap">
+            <svg id="modalReadIcon" class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="modal-icon-label" id="modalReadLabel">Prečítané</span>
+          </span>
+        </button>
+
+        <button id="modalRescanBtn" class="modal-icon-btn" data-i18n-title="rescanBtn" title="Hľadať znova">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+            <span class="modal-icon-label" data-i18n="rescanBtnShort">Meta</span>
+          </span>
+        </button>
+
+        <button id="modalScanIsbnBtn" class="modal-icon-btn" title="Sken ISBN">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.2"/></svg>
+            <span class="modal-icon-label">ISBN</span>
+          </span>
+        </button>
+
+        <button id="modalGeminiSearchBtn" class="modal-icon-btn" data-i18n-title="geminiSearchBtn" title="Hľadať cez Gemini (web)">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+            <span class="modal-icon-label">AI</span>
+          </span>
+        </button>
+
+        <button id="modalTranslateBtn" class="modal-icon-btn" data-i18n-title="translateBtn" title="Preložiť popis" style="display:none;">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h7M9 3v2M14 4l-4 7M12 11l4 9M10 15h8"/><path d="M3 12c3 3 6 4 9 3"/></svg>
+            <span class="modal-icon-label" data-i18n="translateBtnShort">Preložiť</span>
+          </span>
+        </button>
+
+        <!-- skryté — zachovávame pre JS kompatibilitu -->
+        <div id="modalMoreMenu" style="display:none;"></div>
+        <button id="modalMoreBtn" style="display:none;"></button>
+
+        <button id="closeModal" class="modal-icon-btn modal-icon-btn-close" data-i18n-title="closeBtn" title="Zavrieť" style="margin-left:auto;">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            <span class="modal-icon-label" data-i18n="closeBtnShort">Zavrieť</span>
+          </span>
+        </button>
       </div>
+
+      <!-- Skrytý dropdown pre JS kompatibilitu (closeMoreMenu, toggleMoreMenu) -->
 
       <!-- Akcie editovacieho režimu — zobrazia sa len počas úpravy -->
       <div id="modalEditActions" style="display:none; gap:8px; margin-top:18px; flex-wrap:wrap;">

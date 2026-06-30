@@ -72,34 +72,35 @@
 <body>
 
 <div id="loginScreen" style="display:none;">
-  <h1 style="font-family:'Fraunces',serif; font-size:30px; font-weight:600; margin:0;">Knižnica<span style="color:var(--accent);">.</span></h1>
-  <p style="color:var(--ink-soft); font-size:14px; margin:0;">Pre nastavenia sa musíš prihlásiť.</p>
-  <a href="index.html" class="btn btn-primary">Späť na knižnicu</a>
+  <h1 style="font-family:'Fraunces',serif; font-size:30px; font-weight:600; margin:0;"><span data-i18n="appTitle">Knižnica</span><span style="color:var(--accent);">.</span></h1>
+  <p style="color:var(--ink-soft); font-size:14px; margin:0;" data-i18n="settingsLoginRequired">Pre nastavenia sa musíš prihlásiť.</p>
+  <a href="index.html" class="btn btn-primary" data-i18n="backToLibrary">Späť na knižnicu</a>
 </div>
 
 <div id="settingsRoot" class="wrap" style="display:none;">
   <header class="top">
-    <h1>Nastavenia</h1>
-    <a href="index.html" class="back-link">← Späť na knižnicu</a>
+    <h1 data-i18n="settingsTitle">Nastavenia</h1>
+    <a href="index.html" class="back-link" data-i18n="backToLibraryArrow">← Späť na knižnicu</a>
   </header>
 
   <div class="panel">
-    <h2>Účet</h2>
+    <h2 data-i18n="accountSection">Účet</h2>
     <p style="margin:0; font-size:14px;" id="accountEmail"></p>
-    <p class="hint">Tvoja knižnica je viazaná na tento účet a zdieľaná naprieč zariadeniami, kde sa prihlásiš.</p>
+    <p class="hint" data-i18n="accountHint">Tvoja knižnica je viazaná na tento účet a zdieľaná naprieč zariadeniami, kde sa prihlásiš.</p>
   </div>
 
   <div class="panel">
-    <h2>Jazyk rozhrania</h2>
+    <h2 data-i18n="uiLanguageSection">Jazyk rozhrania</h2>
     <select id="uiLanguageSelect">
       <option value="sk">Slovenčina</option>
       <option value="en">English</option>
     </select>
-    <p class="hint">Jazyk menu, tlačidiel a hlášok v appke. Momentálne podporujeme slovenčinu a angličtinu.</p>
+    <p class="hint" data-i18n="uiLanguageHint">Jazyk menu, tlačidiel a hlášok v appke. Momentálne podporujeme slovenčinu a angličtinu.</p>
+    <p class="status-msg ok" id="uiLanguageStatus" style="display:none;" data-i18n="uiLanguageSaved">Uložené.</p>
   </div>
 
   <div class="panel">
-    <h2>Jazyk knižnice</h2>
+    <h2 data-i18n="libraryLanguageSection">Jazyk knižnice</h2>
     <select id="languageSelect">
       <option value="sk">Slovenčina</option>
       <option value="cs">Čeština</option>
@@ -111,59 +112,59 @@
       <option value="es">Španielčina</option>
       <option value="it">Taliančina</option>
     </select>
-    <p class="hint">Nové popisy kníh sa pri dopĺňaní automaticky preložia do tohto jazyka — vyžaduje Gemini API kľúč nižšie.</p>
+    <p class="hint" data-i18n="libraryLanguageHint">Nové popisy kníh sa pri dopĺňaní automaticky preložia do tohto jazyka — vyžaduje Gemini API kľúč nižšie.</p>
   </div>
 
   <div class="panel">
-    <h2>API kľúče</h2>
-    <label class="field-label" for="booksApiKeyInput">Google Books API kľúč (pre obaly a popisy)</label>
-    <input type="password" id="booksApiKeyInput" placeholder="vlož API kľúč…">
-    <p class="hint">Bez kľúča má Google Books API veľmi nízky a nestabilný limit (časté chyby 429). Môžeš použiť <strong>ten istý kľúč</strong> ako pre Gemini, ale v <a href="https://console.cloud.google.com/apis/library/books.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> mu musíš najprv povoliť „Books API".</p>
+    <h2 data-i18n="apiKeysSection">API kľúče</h2>
+    <label class="field-label" for="booksApiKeyInput" data-i18n="googleBooksApiLabel">Google Books API kľúč (pre obaly a popisy)</label>
+    <input type="password" id="booksApiKeyInput" data-i18n-placeholder="apiKeyPlaceholder" placeholder="vlož API kľúč…">
+    <p class="hint" data-i18n="googleBooksApiHint">Bez kľúča má Google Books API veľmi nízky a nestabilný limit (časté chyby 429). Môžeš použiť ten istý kľúč ako pre Gemini, ale v Google Cloud Console mu musíš najprv povoliť „Books API".</p>
     <p class="status-msg" id="booksApiKeyStatus"></p>
 
-    <label class="field-label" for="apiKeyInput">Gemini API kľúč (pre foto-rozpoznávanie a preklad)</label>
-    <input type="password" id="apiKeyInput" placeholder="vlož svoj API kľúč…">
-    <p class="hint">Kľúč sa ukladá len v tomto prehliadači (localStorage), nikam sa neposiela okrem priamo do Google Gemini API. Získaš ho na <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+    <label class="field-label" for="apiKeyInput" data-i18n="geminiApiLabel">Gemini API kľúč (pre foto-rozpoznávanie a preklad)</label>
+    <input type="password" id="apiKeyInput" data-i18n-placeholder="geminiApiPlaceholder" placeholder="vlož svoj API kľúč…">
+    <p class="hint" data-i18n="geminiApiHint">Kľúč sa ukladá len v tomto prehliadači (localStorage), nikam sa neposiela okrem priamo do Google Gemini API. Získaš ho na aistudio.google.com/apikey.</p>
     <p class="status-msg" id="apiKeyStatus"></p>
   </div>
 
   <div class="panel">
-    <h2>Zdieľanie knižnice</h2>
-    <p class="hint" style="margin-top:0; margin-bottom:12px;">Zapni, ak chceš niekomu poslať odkaz na prezeranie tvojej knižnice (bez možnosti upravovať, bez prihlásenia).</p>
+    <h2 data-i18n="sharingSection">Zdieľanie knižnice</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:12px;" data-i18n="sharingHint">Zapni, ak chceš niekomu poslať odkaz na prezeranie tvojej knižnice (bez možnosti upravovať, bez prihlásenia).</p>
     <label class="toggle-row">
-      <input type="checkbox" id="publicToggle"> Verejný náhľad zapnutý
+      <input type="checkbox" id="publicToggle"> <span data-i18n="sharingToggleLabel">Verejný náhľad zapnutý</span>
     </label>
     <div id="publicLinkBox" style="display:none; flex-direction:column; gap:6px;">
       <input type="text" id="publicLinkInput" readonly style="background:var(--bg-sunk); color:var(--ink-soft); font-size:12.5px;">
-      <button id="copyPublicLinkBtn" class="btn" style="width:fit-content;">📋 Kopírovať odkaz</button>
+      <button id="copyPublicLinkBtn" class="btn" style="width:fit-content;" data-i18n="copyLinkBtn">📋 Kopírovať odkaz</button>
     </div>
     <p class="status-msg" id="publicStatus"></p>
   </div>
 
   <div class="panel">
-    <h2>Záloha katalógu</h2>
-    <p class="hint" style="margin-top:0; margin-bottom:12px;">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
+    <h2 data-i18n="backupSection">Záloha katalógu</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:12px;" data-i18n="backupHint">JSON = plná záloha (vrátane obalov), pre prenos medzi tvojimi zariadeniami. CSV = zoznam pre import do Goodreads/LibraryThing (bez obalov).</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-      <button id="exportBtn" class="btn">⬇️ Exportovať JSON</button>
-      <button id="exportCsvBtn" class="btn">⬇️ Exportovať CSV</button>
+      <button id="exportBtn" class="btn" data-i18n="exportJsonBtn">⬇️ Exportovať JSON</button>
+      <button id="exportCsvBtn" class="btn" data-i18n="exportCsvBtn">⬇️ Exportovať CSV</button>
     </div>
-    <button id="importBtn" class="btn">⬆️ Importovať JSON</button>
+    <button id="importBtn" class="btn" data-i18n="importJsonBtn">⬆️ Importovať JSON</button>
     <input type="file" id="importFileInput" accept=".json" style="display:none;">
     <p class="status-msg" id="importStatus"></p>
   </div>
 
   <div class="panel danger-zone">
-    <h2>⚠️ Nebezpečná zóna</h2>
-    <p class="hint" style="margin-top:0; margin-bottom:14px; color:var(--ink-mid);">Tieto akcie sú nezvratné.</p>
+    <h2 data-i18n="dangerZoneSection">⚠️ Nebezpečná zóna</h2>
+    <p class="hint" style="margin-top:0; margin-bottom:14px; color:var(--ink-mid);" data-i18n="dangerZoneHint">Tieto akcie sú nezvratné.</p>
 
     <div style="margin-bottom:18px;">
-      <button id="deleteAllBooksBtn" class="btn btn-danger">🗑️ Zmazať všetky knihy</button>
-      <p class="hint">Vymaže celý tvoj katalóg (knihy), účet a prihlásenie zostanú — môžeš začať znova od nuly.</p>
+      <button id="deleteAllBooksBtn" class="btn btn-danger" data-i18n="deleteAllBooksBtn">🗑️ Zmazať všetky knihy</button>
+      <p class="hint" data-i18n="deleteAllBooksHint">Vymaže celý tvoj katalóg (knihy), účet a prihlásenie zostanú — môžeš začať znova od nuly.</p>
     </div>
 
     <div>
-      <button id="deleteAccountBtn" class="btn btn-danger">🗑️ Zmazať účet</button>
-      <p class="hint">Úplne zmaže tvoj účet (vrátane prihlasovacích údajov) aj všetky knihy. Po tomto kroku sa už nebudeš môcť prihlásiť pod týmto účtom.</p>
+      <button id="deleteAccountBtn" class="btn btn-danger" data-i18n="deleteAccountBtn">🗑️ Zmazať účet</button>
+      <p class="hint" data-i18n="deleteAccountHint">Úplne zmaže tvoj účet (vrátane prihlasovacích údajov) aj všetky knihy. Po tomto kroku sa už nebudeš môcť prihlásiť pod týmto účtom.</p>
     </div>
     <p class="status-msg" id="dangerStatus"></p>
   </div>
@@ -172,16 +173,16 @@
 <!-- Modal s voľbou pri importe (zlúčiť / nahradiť) -->
 <div id="importChoiceModal" style="display:none; position:fixed; inset:0; background:rgba(28,27,25,0.55); align-items:center; justify-content:center; padding:20px; z-index:50;">
   <div style="background:var(--card); border-radius:16px; max-width:480px; width:100%; padding:28px 30px;">
-    <h2 style="font-size:19px; margin:0 0 12px;">Importovať katalóg</h2>
+    <h2 style="font-size:19px; margin:0 0 12px;" data-i18n="importModalTitle">Importovať katalóg</h2>
     <p id="importChoiceSummary" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-soft); line-height:1.5;"></p>
     <div style="display:flex; flex-direction:column; gap:10px;">
       <button id="importMergeBtn" class="btn btn-primary" style="text-align:left; padding:14px 16px; justify-content:flex-start;">
-        <span><strong>Zlúčiť</strong> — pridá len nové knihy, duplicity preskočí</span>
+        <span data-i18n="importMergeOption"><strong>Zlúčiť</strong> — pridá len nové knihy, duplicity preskočí</span>
       </button>
-      <button id="importReplaceBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;">
+      <button id="importReplaceBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;" data-i18n="importReplaceOption">
         <strong>Nahradiť</strong> — úplne nahradí aktuálny katalóg importovaným
       </button>
-      <button id="importCancelBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;">Zrušiť</button>
+      <button id="importCancelBtn" class="btn" style="text-align:left; padding:14px 16px; justify-content:flex-start;" data-i18n="cancelBtn">Zrušiť</button>
     </div>
   </div>
 </div>
@@ -191,11 +192,11 @@
   <div style="background:var(--card); border-radius:16px; max-width:440px; width:100%; padding:28px 30px;">
     <h2 id="confirmDangerTitle" style="font-size:19px; margin:0 0 10px;"></h2>
     <p id="confirmDangerText" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-mid); line-height:1.5;"></p>
-    <p class="hint" style="margin:0 0 14px;">Pre potvrdenie napíš slovo <strong id="confirmDangerWord"></strong> nižšie:</p>
+    <p class="hint" style="margin:0 0 14px;"><span data-i18n="confirmDangerInstruction">Pre potvrdenie napíš slovo</span> <strong id="confirmDangerWord"></strong>:</p>
     <input type="text" id="confirmDangerInput" style="margin-bottom:16px;">
     <div style="display:flex; gap:10px;">
-      <button id="confirmDangerBtn" class="btn btn-danger" disabled>Potvrdiť</button>
-      <button id="cancelDangerBtn" class="btn">Zrušiť</button>
+      <button id="confirmDangerBtn" class="btn btn-danger" disabled data-i18n="confirmBtn">Potvrdiť</button>
+      <button id="cancelDangerBtn" class="btn" data-i18n="cancelBtn">Zrušiť</button>
     </div>
   </div>
 </div>

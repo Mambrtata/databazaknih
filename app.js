@@ -187,6 +187,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   errorMessage = document.getElementById('errorMessage'),
   emptyState = document.getElementById('emptyState'),
   searchInput = document.getElementById('searchInput'),
+  filterLoanedBtn = document.getElementById('filterLoanedBtn'),
   viewGridBtn = document.getElementById('viewGridBtn'),
   viewShelfBtn = document.getElementById('viewShelfBtn'),
   sortSelect = document.getElementById('sortSelect'),
@@ -221,6 +222,9 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   fillAllBtn = document.getElementById('fillAllBtn'),
   fillAllProgress = document.getElementById('fillAllProgress'),
   fillAllSummary = document.getElementById('fillAllSummary'),
+  fillAllBadge = document.getElementById('fillAllBadge'),
+  fillAllMoreBtn = document.getElementById('fillAllMoreBtn'),
+  fillAllMoreMenu = document.getElementById('fillAllMoreMenu'),
   phaseCovers = document.getElementById('phaseCovers'),
   phaseIsbn = document.getElementById('phaseIsbn'),
   phaseMeta = document.getElementById('phaseMeta'),
@@ -239,6 +243,20 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
   modalEditBtn = document.getElementById('modalEditBtn'),
+  modalReadBtn = document.getElementById('modalReadBtn'),
+  modalReadIcon = document.getElementById('modalReadIcon'),
+  modalReadLabel = document.getElementById('modalReadLabel'),
+  modalLoanSection = document.getElementById('modalLoanSection'),
+  modalLoanInfo = document.getElementById('modalLoanInfo'),
+  modalLoanName = document.getElementById('modalLoanName'),
+  modalLoanDate = document.getElementById('modalLoanDate'),
+  modalLoanBtn = document.getElementById('modalLoanBtn'),
+  modalReturnBtn = document.getElementById('modalReturnBtn'),
+  modalWhatsAppBtn = document.getElementById('modalWhatsAppBtn'),
+  modalLoanForm = document.getElementById('modalLoanForm'),
+  modalLoanNameInput = document.getElementById('modalLoanNameInput'),
+  modalLoanConfirmBtn = document.getElementById('modalLoanConfirmBtn'),
+  modalLoanCancelBtn = document.getElementById('modalLoanCancelBtn'),
   modalSaveBtn = document.getElementById('modalSaveBtn'),
   modalCancelEditBtn = document.getElementById('modalCancelEditBtn'),
   modalPrimaryActions = document.getElementById('modalPrimaryActions'),
@@ -273,6 +291,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
 
 let allBooks = [];
 let selectedGenre = 'Všetky';
+let filterLoaned = false;
 let detailsFetchInitiated = false;
 let currentModalBookId = null;
 let fetchInProgress = false; // true len počas aktívneho behu fetchAllMissingDetails
@@ -1339,8 +1358,26 @@ async function fetchCoverFromWikidata(title, author) {
 // CRUD operácie nad knihami
 // ============================================================
 
-async function addBook(title, author, genre, originalTitle, skipDetails, isbn) {
+async function addBook(title, author, genre, originalTitle, skipDetails, isbn, silentDuplicateSkip = false) {
   if (!title || !title.trim()) return;
+
+  const candidate = { title: title.trim(), author: (author || '').trim(), isbn: normalizeIsbn(isbn || '') };
+  const duplicate = findDuplicateBook(candidate);
+  if (duplicate) {
+    if (silentDuplicateSkip) {
+      // Shelf scan — ticho preskočíme, upozorníme súhrnne po skončení
+      return 'duplicate';
+    }
+    const proceed = confirm(
+      `Kniha „${duplicate.title}"${duplicate.author ? ' (' + duplicate.author + ')' : ''} už v knižnici je.\n\n` +
+      `OK = pridať aj tak (napr. máš viac kópií)\nZrušiť = nepridávať`
+    );
+    if (!proceed) {
+      showToast('Pridanie zrušené — kniha už v knižnici existuje.', 'info', 4000);
+      return 'duplicate';
+    }
+  }
+
   const newBook = {
     id: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     title: title.trim(),
@@ -1419,6 +1456,15 @@ function updateFillAllSummary() {
     if (needsMeta > 0) parts.push(`${needsMeta} ${t('phaseMetaLabel').toLowerCase()}`);
     fillAllSummary.textContent = parts.join(' · ');
     fillAllBtn.disabled = false;
+  }
+
+  // Odznak na ikone "Doplniť" — počet KNÍH (nie súčet kategórií), ktoré
+  // majú aspoň jeden chýbajúci údaj, nech jedna kniha chýbajúca vo
+  // všetkých troch veciach nezavádza počítaním 3x.
+  if (fillAllBadge) {
+    const needsAnything = allBooks.filter(b => !b.coverUrl || !b.isbn || (!b.publishYear && !b.pageCount)).length;
+    fillAllBadge.textContent = needsAnything > 99 ? '99+' : String(needsAnything);
+    fillAllBadge.style.display = needsAnything > 0 ? 'flex' : 'none';
   }
 }
 
@@ -1572,7 +1618,13 @@ async function searchViaGeminiWeb(book) {
   // funkčnú URL obrázka obalu (vidí len text výsledkov vyhľadávania, nie
   // skutočné obrázkové súbory) — preto žiadame radšej odkaz na stránku
   // (antikvariát/databáza), odkiaľ si obal vieš stiahnuť a nahrať ručne.
-  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). Skús nájsť webovú stránku (napr. antikvariát, knižná databáza ako databazeknih.cz, alebo vydavateľstvo), kde je k tejto konkrétnej knihe zobrazený obal — uveď URL tej stránky, NIE priamu URL obrázka. Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).\n\nOdpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formátovania, bez spätných úvodzoviek, bez akéhokoľvek ďalšieho textu pred alebo za JSON-om:\n{"pageUrl": "https://... alebo null ak si žiadnu nenašiel", "pageSource": "názov stránky, napr. Databáze knih, alebo null", "description": "slovenský popis alebo null"}`;
+  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). 
+Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, antikvariaty.net, martinus.sk, alebo stránky vydavateľstiev.
+Ak nájdeš obal knihy, skús získať PRIAMU URL obrázka (končiacu na .jpg, .png, .webp a podobne) — nie URL stránky, ale samotného obrázka.
+Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).
+
+Odpovedz IBA validným JSON objektom v tomto presnom tvare, bez markdown formátovania, bez spätných úvodzoviek:
+{"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "pageUrl": "https://...url stranky alebo null", "pageSource": "nazov stranky alebo null", "description": "slovensky popis alebo null"}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -1618,12 +1670,13 @@ async function searchViaGeminiWeb(book) {
     const pageUrl = (parsed.pageUrl && parsed.pageUrl !== 'null') ? parsed.pageUrl : null;
     const pageSource = (parsed.pageSource && parsed.pageSource !== 'null') ? parsed.pageSource : null;
     const description = (parsed.description && parsed.description !== 'null') ? parsed.description : null;
+    const coverImageUrl = (parsed.coverImageUrl && parsed.coverImageUrl !== 'null') ? parsed.coverImageUrl : null;
 
-    if (!pageUrl && !description) {
+    if (!pageUrl && !description && !coverImageUrl) {
       console.log('Gemini web search pre "' + book.title + '" nenašiel nič. Surová odpoveď:', text);
     }
 
-    return { pageUrl, pageSource, description };
+    return { pageUrl, pageSource, description, coverImageUrl };
   } catch (error) {
     console.error('Chyba pri vyhľadávaní cez Gemini web search:', error);
     showError('Nepodarilo sa spojiť s Gemini API. Skontroluj pripojenie.');
@@ -1801,6 +1854,9 @@ function filterAndRenderBooks() {
   const term = searchInput.value.toLowerCase().trim();
   let toDisplay = allBooks;
 
+  if (filterLoaned) {
+    toDisplay = toDisplay.filter(b => !!b.loanedTo);
+  }
   if (selectedGenre !== 'Všetky') {
     toDisplay = toDisplay.filter(b => (b.genre || 'Nezaradené') === selectedGenre);
   }
@@ -1921,7 +1977,7 @@ function renderShelfView(booksToRender, sortKey) {
   const showFlatList = selectedGenre === 'Všetky' && sortKey && sortKey !== 'title-asc';
 
   if (showFlatList) {
-    bookList.appendChild(createShelfRow(booksToRender));
+    appendShelfBooks(bookList, booksToRender);
     return;
   }
 
@@ -1937,12 +1993,72 @@ function renderShelfView(booksToRender, sortKey) {
       const section = document.createElement('div');
       section.className = 'genre-section';
       section.innerHTML = `<h3>${escapeHtml(genre)} <span class="tally">— ${byGenre[genre].length} ${byGenre[genre].length === 1 ? 'kniha' : 'kníh'}</span></h3>`;
-      section.appendChild(createShelfRow(byGenre[genre]));
+      appendShelfBooks(section, byGenre[genre]);
       bookList.appendChild(section);
     });
   } else if (byGenre[selectedGenre]) {
-    bookList.appendChild(createShelfRow(byGenre[selectedGenre]));
+    appendShelfBooks(bookList, byGenre[selectedGenre]);
   }
+}
+
+// Rozdeľuje knihy do riadkov podľa šírky kontajnera — každý riadok je
+// samostatná "polica" s čiarou dole. Prvých SHELF_INITIAL_COUNT kníh
+// vykreslí hneď, zvyšok lazy-loadom cez Intersection Observer.
+const SHELF_INITIAL_COUNT = 40;
+const SHELF_LAZY_BATCH = 30;
+
+function appendShelfBooks(container, books) {
+  const containerWidth = bookList.clientWidth || 900;
+  const GAP = 3;
+
+  // Rozdelíme books do riadkov podľa šírky
+  function splitIntoRows(bookList) {
+    const rows = [];
+    let currentRow = [];
+    let currentWidth = 0;
+    for (const book of bookList) {
+      const w = shelfSpineWidth(book) + GAP;
+      if (currentWidth + w > containerWidth && currentRow.length > 0) {
+        rows.push(currentRow);
+        currentRow = [book];
+        currentWidth = w;
+      } else {
+        currentRow.push(book);
+        currentWidth += w;
+      }
+    }
+    if (currentRow.length > 0) rows.push(currentRow);
+    return rows;
+  }
+
+  const initial = books.slice(0, SHELF_INITIAL_COUNT);
+  const remaining = books.slice(SHELF_INITIAL_COUNT);
+
+  // Vykreslíme prvé riadky
+  splitIntoRows(initial).forEach(row => container.appendChild(createShelfRow(row)));
+
+  // Lazy load zvyšku
+  if (remaining.length === 0) return;
+
+  const sentinel = document.createElement('div');
+  sentinel.className = 'shelf-lazy-sentinel';
+  container.appendChild(sentinel);
+
+  let loaded = 0;
+  const observer = new IntersectionObserver((entries) => {
+    if (!entries[0].isIntersecting) return;
+    const batch = remaining.slice(loaded, loaded + SHELF_LAZY_BATCH);
+    splitIntoRows(batch).forEach(row => {
+      container.insertBefore(createShelfRow(row), sentinel);
+    });
+    loaded += batch.length;
+    if (loaded >= remaining.length) {
+      observer.disconnect();
+      sentinel.remove();
+    }
+  }, { rootMargin: '300px' });
+
+  observer.observe(sentinel);
 }
 
 // Šírka chrbta sa odvíja od dĺžky najdlhšieho textu (názov, alebo autor) —
@@ -1950,8 +2066,8 @@ function renderShelfView(booksToRender, sortKey) {
 // vertikálneho textu potrebuje, teda tým širší musí byť chrbát, aby sa
 // doň zmestil bez orezania. Výška je rovnaká pre celú policu (rovnako
 // ako majú skutočné knihy v sérii podobnú výšku), len mierne kolíše.
-const SHELF_SPINE_HEIGHT = 280; // px — zväčšené spolu s fontom, nech ostane rovnaký počet riadkov
-const SHELF_CHARS_PER_LINE = 15; // väčší font (16px) — menej znakov sa zmestí na riadok
+const SHELF_SPINE_HEIGHT = 280;
+const SHELF_CHARS_PER_LINE = 15;
 
 function shelfSpineWidth(book) {
   const titleLen = (book.title || '').length;
@@ -2025,6 +2141,8 @@ function createBookElement(book) {
              </div>`
       }
       <button class="card-delete-btn" data-id="${book.id}" title="Odstrániť z katalógu" aria-label="Odstrániť">✕</button>
+      ${book.readStatus === 'read' ? `<span class="card-read-badge" title="Prečítané">✓</span>` : ''}
+      ${book.loanedTo ? `<span class="card-loan-badge" title="Požičané: ${escapeHtml(book.loanedTo)}">${book.loanedAt ? (() => { const d = new Date(book.loanedAt); return `\u{1F4E4} ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`; })() : '\u{1F4E4}'}</span>` : ''}
     </div>
     <div class="book-body">
       <p class="book-title" title="${escapeHtml(book.title)}">${escapeHtml(book.title)}</p>
@@ -2069,6 +2187,8 @@ async function handleDetailClick(bookId) {
   if (!book) return;
   currentModalBookId = bookId;
   exitEditMode();
+  updateReadButton(book);
+  updateLoanSection(book);
 
   modalTitle.textContent = book.title;
   if (book.originalTitle) {
@@ -2088,12 +2208,19 @@ async function handleDetailClick(bookId) {
     bookModal.querySelector('.modal-card').style.transform = 'scale(1)';
   });
 
-  if (book.coverUrl && book.description) {
+  if (book.coverUrl || book.description) {
     modalLoader.style.display = 'none';
-    modalDescription.style.display = 'block';
-    modalCover.src = book.coverUrl;
-    modalDescription.textContent = book.description;
-    updateTranslateButtonVisibility(book);
+    modalDescription.style.display = book.description ? 'block' : 'none';
+    if (book.coverUrl) {
+      modalCover.src = book.coverUrl;
+    } else {
+      modalCover.removeAttribute('src');
+      modalCover.style.background = 'var(--paper-deep)';
+    }
+    if (book.description) {
+      modalDescription.textContent = book.description;
+      updateTranslateButtonVisibility(book);
+    }
   } else {
     modalLoader.style.display = 'block';
     modalDescription.style.display = 'none';
@@ -2105,8 +2232,8 @@ async function handleDetailClick(bookId) {
       const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book, getEnabledSources());
       if (details.sources) book.sourcesTried = details.sources;
       if (!details.networkError) {
-        if (!book.coverUrl) book.coverUrl = details.coverUrl; // nepreписuj vlastný/už nájdený obal
-        book.description = details.description;
+        if (!book.coverUrl) book.coverUrl = details.coverUrl;
+        if (!book.description) book.description = details.description; // neprepisuj existujúci popis (napr. od Gemini)
         if (details.publishYear) book.publishYear = details.publishYear;
         if (details.pageCount) book.pageCount = details.pageCount;
         saveBooks(true);
@@ -2527,13 +2654,15 @@ shelfReviewAddBtn.addEventListener('click', async () => {
   showScanOverlay('Pridávam knihy', `0 z ${toAdd.length} hotovo`);
 
   let count = 0;
+  let skipped = 0;
   for (const b of toAdd) {
-    await addBook(b.title, b.author, "Naskenované z fotky", '', true);
-    count++;
+    const result = await addBook(b.title, b.author, "Naskenované z fotky", '', true, '', true);
+    if (result === 'duplicate') { skipped++; } else { count++; }
     updateScanOverlay(`${count} z ${toAdd.length} hotovo`);
   }
   hideScanOverlay();
-  showToast(`Pridaných ${toAdd.length} ${toAdd.length === 1 ? 'kniha' : (toAdd.length < 5 ? 'knihy' : 'kníh')} do katalógu. Dopĺňam obaly a popisy na pozadí…`, 'success', 6000);
+  const skippedNote = skipped > 0 ? ` (${skipped} preskočených — už v knižnici)` : '';
+  showToast(`Pridaných ${count} ${count === 1 ? 'kniha' : (count < 5 ? 'knihy' : 'kníh')} do katalógu${skippedNote}. Dopĺňam obaly…`, 'success', 6000);
   await fetchAllMissingDetails();
 });
 
@@ -2897,6 +3026,14 @@ addBookForm.addEventListener('submit', (event) => {
 
 searchInput.addEventListener('input', filterAndRenderBooks);
 
+filterLoanedBtn.addEventListener('click', () => {
+  filterLoaned = !filterLoaned;
+  filterLoanedBtn.style.background = filterLoaned ? 'var(--accent)' : 'var(--card)';
+  filterLoanedBtn.style.color = filterLoaned ? '#fff' : 'var(--ink-soft)';
+  filterLoanedBtn.style.borderColor = filterLoaned ? 'var(--accent)' : 'var(--line)';
+  filterAndRenderBooks();
+});
+
 sortSelect.addEventListener('change', () => {
   localStorage.setItem(SORT_PREFERENCE_STORAGE, sortSelect.value);
   filterAndRenderBooks();
@@ -3013,6 +3150,86 @@ modalTranslateBtn.addEventListener('click', async () => {
   updateTranslateButtonVisibility(book);
 });
 
+function updateReadButton(book) {
+  if (!modalReadBtn) return;
+  const isRead = book.readStatus === 'read';
+  modalReadBtn.style.color = isRead ? '#2D7D52' : '';
+  modalReadBtn.style.borderColor = isRead ? '#2D7D52' : '';
+  modalReadBtn.style.background = isRead ? '#EBF5EE' : '';
+  modalReadLabel.textContent = isRead ? 'Prečítané ✓' : 'Prečítané';
+  modalReadBtn.title = isRead ? 'Označiť ako neprečítané' : 'Označiť ako prečítané';
+}
+
+function updateLoanSection(book) {
+  if (!modalLoanSection) return;
+  const loaned = !!book.loanedTo;
+  modalLoanInfo.style.display = loaned ? 'block' : 'none';
+  modalLoanForm.style.display = 'none';
+  modalLoanBtn.style.display = loaned ? 'none' : 'inline-flex';
+  modalReturnBtn.style.display = loaned ? 'inline-flex' : 'none';
+  modalWhatsAppBtn.style.display = loaned ? 'inline-flex' : 'none';
+  if (loaned) {
+    modalLoanName.textContent = book.loanedTo;
+    if (book.loanedAt) {
+      const d = new Date(book.loanedAt);
+      modalLoanDate.textContent = `— od ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`;
+    } else {
+      modalLoanDate.textContent = '';
+    }
+  }
+}
+
+modalLoanBtn.addEventListener('click', () => {
+  modalLoanForm.style.display = 'block';
+  modalLoanBtn.style.display = 'none';
+  modalLoanNameInput.value = '';
+  modalLoanNameInput.focus();
+});
+
+modalLoanCancelBtn.addEventListener('click', () => {
+  modalLoanForm.style.display = 'none';
+  modalLoanBtn.style.display = 'inline-flex';
+});
+
+modalLoanConfirmBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  const name = modalLoanNameInput.value.trim();
+  if (!name) { modalLoanNameInput.focus(); return; }
+  book.loanedTo = name;
+  book.loanedAt = Date.now();
+  saveBooks(true);
+  filterAndRenderBooks();
+  updateLoanSection(book);
+});
+
+modalReturnBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  book.loanedTo = null;
+  book.loanedAt = null;
+  saveBooks(true);
+  filterAndRenderBooks();
+  updateLoanSection(book);
+  showToast('Kniha označená ako vrátená.', 'success', 3000);
+});
+
+modalWhatsAppBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  const text = `Ahoj ${book.loanedTo}, len pripomínam že u seba máš moju knihu „${book.title}"${book.author ? ' od ' + book.author : ''} 📚 Keď ju dočítaš, daj vedieť!`;
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+});
+
+modalReadBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  book.readStatus = book.readStatus === 'read' ? null : 'read';
+  saveBooks(true);
+  updateReadButton(book);
+  filterAndRenderBooks();
+});
+
 modalEditBtn.addEventListener('click', enterEditMode);
 modalCancelEditBtn.addEventListener('click', exitEditMode);
 modalSaveBtn.addEventListener('click', saveEditedBook);
@@ -3039,6 +3256,18 @@ modalMoreMenu.addEventListener('click', (e) => {
   if (e.target.closest('.more-menu-item')) closeMoreMenu();
 });
 
+// Rovnaký princíp pre dropdown "Pokročilé možnosti" pri ikone "Doplniť" —
+// otvára sa malým tlačidlom "⋯" v rohu ikony, zatvára sa kliknutím mimo.
+fillAllMoreBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  fillAllMoreMenu.style.display = fillAllMoreMenu.style.display === 'none' ? 'block' : 'none';
+});
+document.addEventListener('click', (e) => {
+  if (fillAllMoreMenu.style.display === 'block' && !fillAllMoreMenu.contains(e.target) && e.target !== fillAllMoreBtn) {
+    fillAllMoreMenu.style.display = 'none';
+  }
+});
+
 modalGeminiSearchBtn.addEventListener('click', async () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
@@ -3049,27 +3278,40 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
 
   const result = await searchViaGeminiWeb(book);
   if (result) {
-    if (result.description) {
+    let changed = false;
+
+    if (result.description && (!book.description || result.description.length > book.description.length)) {
       book.description = result.description;
-      saveBooks(true);
-      filterAndRenderBooks();
       modalDescription.textContent = book.description;
       updateTranslateButtonVisibility(book);
+      changed = true;
     }
 
-    if (result.pageUrl) {
-      // Gemini cez webové vyhľadávanie nevie spoľahlivo poskytnúť priamu
-      // funkčnú URL obrázka — namiesto toho ukážeme odkaz na stránku
-      // (antikvariát/databáza), odkiaľ si obal vieš ručne stiahnuť a nahrať
-      // cez tlačidlo "📷 Nahrať obal".
-      const safeUrl = escapeHtml(result.pageUrl);
+    if (result.coverImageUrl && !book.coverUrl) {
+      book.coverUrl = result.coverImageUrl;
+      const modalCoverEl = document.getElementById('modalCover');
+      if (modalCoverEl) {
+        modalCoverEl.style.backgroundImage = `url(${book.coverUrl})`;
+        modalCoverEl.style.backgroundSize = 'cover';
+        modalCoverEl.style.backgroundPosition = 'center';
+      }
+      changed = true;
+    }
+
+    if (changed) {
+      saveBooks(true);
+      filterAndRenderBooks();
+    }
+
+    if (result.coverImageUrl) {
+      errorMessage.innerHTML = `Gemini našiel a uložil obal knihy.`;
+    } else if (result.pageUrl) {
       const linkLabel = result.pageSource ? `Otvoriť na ${escapeHtml(result.pageSource)}` : 'Otvoriť nájdenú stránku';
-      errorMessage.innerHTML = `Gemini našiel možný zdroj obalu: <a href="${safeUrl}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${linkLabel}</a> — obal si odtiaľ môžeš stiahnuť a nahrať tlačidlom „📷 Nahrať obal“.`;
+      errorMessage.innerHTML = `Obal nenašiel priamo — tu je stránka kde by mal byť: <a href="${escapeHtml(result.pageUrl)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${linkLabel}</a>`;
     } else if (!result.description) {
-      errorMessage.textContent = 'Gemini cez webové vyhľadávanie nenašiel pre túto knihu žiadnu stránku s obalom ani popis.';
+      errorMessage.textContent = 'Gemini nenašiel pre túto knihu ani obal ani popis.';
     }
   }
-
   modalGeminiSearchBtn.disabled = false;
   modalGeminiSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
 });
@@ -3216,7 +3458,7 @@ function setPhaseState(rowEl, state, countText) {
 
 fillAllBtn.addEventListener('click', async () => {
   fillAllBtn.disabled = true;
-  fillAllProgress.style.display = 'flex';
+  fillAllProgress.classList.add('active');
   setPhaseState(phaseCovers, 'pending', '');
   setPhaseState(phaseIsbn, 'pending', '');
   setPhaseState(phaseMeta, 'pending', '');
@@ -3254,6 +3496,9 @@ fillAllBtn.addEventListener('click', async () => {
 
   fillAllBtn.disabled = false;
   updateFetchMissingButtonLabel();
+  // Priebeh necháme chvíľu viditeľný (nech si používateľ stihne všimnúť
+  // výsledok), potom sa skryje — panel tu nemá zaberať miesto natrvalo.
+  setTimeout(() => fillAllProgress.classList.remove('active'), 4000);
 });
 
 stopFetchBtn.addEventListener('click', () => {
