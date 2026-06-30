@@ -89,6 +89,8 @@ const imageUpload = document.getElementById('imageUpload'),
   booksApiKeyInput = document.getElementById('booksApiKeyInput'),
   booksApiKeyStatus = document.getElementById('booksApiKeyStatus'),
   retryDetailsBtn = document.getElementById('retryDetailsBtn'),
+  fetchMissingBtn = document.getElementById('fetchMissingBtn'),
+  missingCoversInfo = document.getElementById('missingCoversInfo'),
   customCoverUpload = document.getElementById('customCoverUpload'),
   modalCoverBtn = document.getElementById('modalCoverBtn'),
   modalViewMode = document.getElementById('modalViewMode'),
@@ -110,6 +112,7 @@ let allBooks = [];
 let selectedGenre = 'Všetky';
 let detailsFetchInitiated = false;
 let currentModalBookId = null;
+let fetchInProgress = false; // true len počas aktívneho behu fetchAllMissingDetails
 
 // ============================================================
 // Persistencia (localStorage)
@@ -461,8 +464,12 @@ function authorMatches(ourAuthor, resultAuthors) {
   return false;
 }
 
-async function fetchBookDetails(title, author, originalTitle, attempt = 0, titleFallbackUsed = false) {
-  if (!title) return { coverUrl: null, description: null, networkError: false };
+async function fetchBookDetails(title, author, originalTitle, book, attempt = 0, titleFallbackUsed = false) {
+  if (!title) return { coverUrl: null, description: null, networkError: false, sources: {} };
+
+  // Per-zdroj stav danej knihy — ak je už zaznamenané, že zdroj bol vyskúšaný
+  // a nič nenašiel, preskočíme ho (šetrí to API volania pri opakovanom behu).
+  const sources = (book && book.sourcesTried) ? { ...book.sourcesTried } : {};
 
   // Ak máme originálny/anglický názov, skúsime ho ako prvý — všetky tri zdroje
   // (Open Library, Google Books, Wikidata) majú spravidla oveľa lepšie pokrytie
@@ -470,107 +477,113 @@ async function fetchBookDetails(title, author, originalTitle, attempt = 0, title
   const useOriginal = !titleFallbackUsed && originalTitle && originalTitle.trim();
   const searchTitle = useOriginal ? originalTitle.trim() : title;
 
+  let coverUrl = null;
+  let description = null;
+
   // ---- 1) Open Library — skúšame ako prvú, nemá denný limit požiadaviek ----
-  const ol = await fetchFromOpenLibrary(searchTitle, author);
-  if (ol.coverUrl) {
-    return {
-      coverUrl: ol.coverUrl,
-      description: ol.description || 'Popis pre túto knihu nebol nájdený.',
-      networkError: false
-    };
+  if (sources.openLibrary !== 'found' && sources.openLibrary !== 'empty') {
+    const ol = await fetchFromOpenLibrary(searchTitle, author);
+    sources.openLibrary = ol.coverUrl ? 'found' : 'empty';
+    if (ol.coverUrl) coverUrl = ol.coverUrl;
+    if (ol.description) description = ol.description;
+  }
+
+  if (coverUrl) {
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
   }
 
   // ---- 2) Google Books — druhý zdroj, má denný limit (najmä bez vlastného kľúča) ----
-  if (Date.now() < rateLimitedUntil) {
-    // Books API je v "pauze" po predošlom 429 — neskúšame ho znova zbytočne,
-    // prejdeme rovno na Wikidata.
-    const wd = await fetchCoverFromWikidata(searchTitle, author);
-    if (wd.coverUrl) {
-      return {
-        coverUrl: wd.coverUrl,
-        description: wd.description || ol.description || 'Popis pre túto knihu nebol nájdený.',
-        networkError: false
-      };
+  const booksAlreadyTried = sources.googleBooks === 'found' || sources.googleBooks === 'empty';
+
+  if (!booksAlreadyTried && Date.now() < rateLimitedUntil) {
+    // Books API je v "pauze" po predošlom 429 — neskúšame ho znova zbytočne v tomto behu,
+    // ale NEZNAMENÁME si to ako "empty", aby sa skúsilo nabudúce, keď kvóta bude voľná.
+    sources.googleBooksRateLimited = true;
+  } else if (!booksAlreadyTried) {
+    const booksApiKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
+    try {
+      const query = `intitle:${encodeURIComponent(searchTitle)}${author ? '+inauthor:' + encodeURIComponent(author) : ''}`;
+      let url = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
+      if (booksApiKey) url += `&key=${encodeURIComponent(booksApiKey)}`;
+
+      const response = await fetch(url);
+
+      if (response.status === 429) {
+        // Retry tu nedáva zmysel: 429 na Books API takmer vždy znamená vyčerpanú
+        // dennú kvótu (resetuje sa raz za 24h), nie krátky prechodný výkyv.
+        rateLimitedUntil = Date.now() + 5 * 60000; // 5 min pauza, nech zbytočne nešpiníme konzolu
+        sources.googleBooksRateLimited = true;
+        if (!lastNetworkErrorShown) {
+          lastNetworkErrorShown = true;
+          errorMessage.textContent = booksApiKey
+            ? 'Google Books API odmieta požiadavky aj s tvojím kľúčom (HTTP 429, denná kvóta je pravdepodobne vyčerpaná). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.'
+            : 'Google Books API odmieta požiadavky bez kľúča (HTTP 429). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.';
+        }
+      } else if (response.status === 403) {
+        sources.googleBooks = 'empty';
+        if (!lastNetworkErrorShown) {
+          lastNetworkErrorShown = true;
+          showError('Google Books API odmietol kľúč (HTTP 403). Over, že je v Google Cloud Console povolené „Books API“ pre tento kľúč a že kľúč nemá obmedzenia, ktoré by blokovali tento web.');
+        }
+      } else if (response.ok) {
+        const data = await response.json();
+        const bookResult = data.items?.[0]?.volumeInfo;
+        // Overíme, že nájdená kniha skutočne sedí s autorom, ktorého máme v katalógu.
+        // Bez tejto kontroly fulltextové vyhľadávanie podľa všeobecného názvu (napr. "Dedič",
+        // "Goya") ľahko vráti úplne inú knihu od iného autora, len so zhodným/podobným titulom.
+        const matches = bookResult && authorMatches(author, bookResult.authors);
+        const foundCover = matches ? (bookResult?.imageLinks?.thumbnail || null) : null;
+        sources.googleBooks = foundCover ? 'found' : 'empty';
+        if (foundCover) coverUrl = foundCover;
+        if (matches && bookResult?.description) description = bookResult.description;
+      } else {
+        sources.googleBooks = 'empty';
+      }
+    } catch (error) {
+      console.error('Chyba pri načítaní detailov z Google Books pre "' + title + '":', error);
+      // Sieťová chyba nie je fatálna ani trvalá — neoznačujeme zdroj ako "empty",
+      // nech sa skúsi znova nabudúce (mohol to byť len dočasný výpadok).
     }
-    return { coverUrl: null, description: ol.description || null, networkError: true, rateLimited: true };
   }
 
-  const booksApiKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
-  let coverUrl = null;
-  let description = ol.description || null;
-
-  try {
-    const query = `intitle:${encodeURIComponent(searchTitle)}${author ? '+inauthor:' + encodeURIComponent(author) : ''}`;
-    let url = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
-    if (booksApiKey) url += `&key=${encodeURIComponent(booksApiKey)}`;
-
-    const response = await fetch(url);
-
-    if (response.status === 429) {
-      // Retry tu nedáva zmysel: 429 na Books API takmer vždy znamená vyčerpanú
-      // dennú kvótu (resetuje sa raz za 24h), nie krátky prechodný výkyv.
-      rateLimitedUntil = Date.now() + 5 * 60000; // 5 min pauza, nech zbytočne nešpiníme konzolu
-      if (!lastNetworkErrorShown) {
-        lastNetworkErrorShown = true;
-        errorMessage.textContent = booksApiKey
-          ? 'Google Books API odmieta požiadavky aj s tvojím kľúčom (HTTP 429, denná kvóta je pravdepodobne vyčerpaná). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.'
-          : 'Google Books API odmieta požiadavky bez kľúča (HTTP 429). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.';
-      }
-      const wdFallback = await fetchCoverFromWikidata(searchTitle, author);
-      if (wdFallback.coverUrl) {
-        return {
-          coverUrl: wdFallback.coverUrl,
-          description: wdFallback.description || description || 'Popis pre túto knihu nebol nájdený.',
-          networkError: false
-        };
-      }
-      // Ani Open Library, ani Wikidata nič nenašli a Books API je vyčerpané —
-      // toto NEUKLADÁME ako finálny výsledok, aby sa kniha skúsila znova nabudúce.
-      return { coverUrl: null, description: description, networkError: true, rateLimited: true };
-    }
-
-    if (response.status === 403) {
-      if (!lastNetworkErrorShown) {
-        lastNetworkErrorShown = true;
-        showError('Google Books API odmietol kľúč (HTTP 403). Over, že je v Google Cloud Console povolené „Books API“ pre tento kľúč a že kľúč nemá obmedzenia, ktoré by blokovali tento web.');
-      }
-    } else if (response.ok) {
-      const data = await response.json();
-      const book = data.items?.[0]?.volumeInfo;
-
-      // Overíme, že nájdená kniha skutočne sedí s autorom, ktorého máme v katalógu.
-      // Bez tejto kontroly fulltextové vyhľadávanie podľa všeobecného názvu (napr. "Dedič",
-      // "Goya") ľahko vráti úplne inú knihu od iného autora, len so zhodným/podobným titulom.
-      const matches = book && authorMatches(author, book.authors);
-      coverUrl = matches ? (book?.imageLinks?.thumbnail || null) : null;
-      if (matches && book?.description) description = book.description;
-    }
-  } catch (error) {
-    console.error('Chyba pri načítaní detailov z Google Books pre "' + title + '":', error);
-    // Sieťová chyba pri Google Books nie je fatálna — pokračujeme na title-fallback
-    // a Wikidata nižšie, namiesto okamžitého vzdania sa.
+  if (coverUrl) {
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
   }
 
   // Ak sme hľadali podľa originálneho/EN názvu a nič sme nenašli, skúsime ešte
-  // raz s pôvodným (preloženým) názvom (cez všetky tri zdroje opäť).
-  if (!coverUrl && useOriginal) {
-    const fallback = await fetchBookDetails(title, author, null, 0, true);
-    if (!fallback.networkError && fallback.coverUrl) return fallback;
+  // raz s pôvodným (preloženým) názvom (cez zdroje, ktoré ešte neboli vyskúšané).
+  if (useOriginal) {
+    const fallback = await fetchBookDetails(title, author, null, { sourcesTried: sources }, 0, true);
+    if (fallback.coverUrl) return fallback;
+    Object.assign(sources, fallback.sources);
+    if (!description && fallback.description && fallback.description !== 'Popis pre túto knihu nebol nájdený.') {
+      description = fallback.description;
+    }
   }
 
   // ---- 3) Wikidata — posledný fallback pre veľmi známe diela ----
-  if (!coverUrl) {
+  if (sources.wikidata !== 'found' && sources.wikidata !== 'empty') {
     const wd = await fetchCoverFromWikidata(searchTitle, author);
+    sources.wikidata = wd.coverUrl ? 'found' : 'empty';
     if (wd.coverUrl) coverUrl = wd.coverUrl;
     if (!description && wd.description) description = wd.description;
+  }
+
+  // Ak Books API bolo rate-limited a nič iné nenašlo obal, nepovažujeme
+  // toto za finálny výsledok — nech sa kniha skúsi znova, keď bude kvóta voľná.
+  if (!coverUrl && sources.googleBooksRateLimited) {
+    return { coverUrl: null, description, networkError: true, rateLimited: true, sources };
   }
 
   return {
     coverUrl: coverUrl,
     description: description || 'Popis pre túto knihu nebol nájdený.',
-    networkError: false
+    networkError: false,
+    sources
   };
 }
+
+
 
 // ============================================================
 // Open Library — primárny zdroj obalu/popisu. Na rozdiel od Google Books
@@ -597,7 +610,7 @@ async function fetchFromOpenLibrary(title, author) {
   }
   try {
     const query = `${title}${author ? ' ' + author : ''}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,first_sentence&limit=3`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,cover_i,key,first_sentence&limit=3`;
     const res = await fetchWithTimeout(url, 6000);
 
     if (res.status === 429) {
@@ -616,9 +629,29 @@ async function fetchFromOpenLibrary(title, author) {
       if (!doc.cover_i) continue;
 
       const coverUrl = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
-      const description = Array.isArray(doc.first_sentence)
-        ? doc.first_sentence[0]
-        : (doc.first_sentence || null);
+
+      // "first_sentence" je len úvodná veta textu, nie skutočný popis/anotácia —
+      // tú treba dotiahnuť samostatne z /works/{key}.json (pole "description").
+      let description = null;
+      if (doc.key) {
+        try {
+          const workRes = await fetchWithTimeout(`https://openlibrary.org${doc.key}.json`, 5000);
+          if (workRes.ok) {
+            const workData = await workRes.json();
+            description = typeof workData.description === 'string'
+              ? workData.description
+              : (workData.description?.value || null);
+          }
+        } catch (e) {
+          // popis sa nepodarilo dotiahnuť — obal je dôležitejší, pokračujeme aj bez popisu
+        }
+      }
+      if (!description) {
+        description = Array.isArray(doc.first_sentence)
+          ? doc.first_sentence[0]
+          : (doc.first_sentence || null);
+      }
+
       return { coverUrl, description };
     }
     return { coverUrl: null, description: null };
@@ -740,13 +773,14 @@ async function addBook(title, author, genre, originalTitle, skipDetails) {
 
   if (!skipDetails) {
     showLoader(`Hľadám obal a popis pre „${newBook.title}“…`);
-    const { coverUrl, description, networkError } = await fetchBookDetails(newBook.title, newBook.author, newBook.originalTitle);
+    const { coverUrl, description, networkError, sources } = await fetchBookDetails(newBook.title, newBook.author, newBook.originalTitle, newBook);
     if (!networkError) {
       newBook.coverUrl = coverUrl;
       newBook.description = description;
-      saveBooks();
-      filterAndRenderBooks();
     }
+    newBook.sourcesTried = sources || newBook.sourcesTried;
+    saveBooks();
+    filterAndRenderBooks();
     hideLoader();
   }
 }
@@ -757,57 +791,82 @@ function deleteBook(id) {
   filterAndRenderBooks();
 }
 
+// Zobrazí v paneli, koľko kníh ešte nemá obal, nech je jasné, či má zmysel
+// kliknúť na manuálne tlačidlo "Spustiť dopĺňanie".
+function updateFetchMissingButtonLabel() {
+  if (!missingCoversInfo) return;
+  const missingCount = allBooks.filter(b => !b.coverUrl).length;
+  if (missingCount === 0) {
+    missingCoversInfo.textContent = 'Všetky knihy v katalógu už majú obal alebo placeholder.';
+    fetchMissingBtn.disabled = true;
+  } else {
+    missingCoversInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} obal. Spustenie skúsi Open Library, Google Books a Wikidata (zdroje, ktoré už raz nič nenašli, sa pri tej istej knihe preskočia).`;
+    fetchMissingBtn.disabled = false;
+  }
+}
+
 async function fetchAllMissingDetails() {
   // Chýba obal = skúsime znova (aj keby kniha už má popis z predošlého behu bez Wikidata fallbacku).
   const missing = allBooks.filter(b => !b.coverUrl);
   if (missing.length === 0) return;
 
+  fetchInProgress = true;
+  fetchMissingBtn.disabled = true;
   showLoader(`Dopĺňam obaly pre ${missing.length} kníh… (0/${missing.length})`);
   let count = 0; // počet úspešne doplnených kníh
   let processed = 0; // počet spracovaných kníh (úspešne aj neúspešne) — pre priebežné počítadlo
   let rateLimitedCount = 0;
 
-  for (const book of missing) {
-    // znova over, či kniha medzitým nedostala obal (napr. cez klik na Detail alebo vlastné nahratie)
-    if (book.coverUrl) { count++; processed++; continue; }
+  try {
+    for (const book of missing) {
+      // znova over, či kniha medzitým nedostala obal (napr. cez klik na Detail alebo vlastné nahratie)
+      if (book.coverUrl) { count++; processed++; continue; }
 
-    await new Promise(res => setTimeout(res, 1200));
-    const details = await fetchBookDetails(book.title, book.author, book.originalTitle);
-    processed++;
+      await new Promise(res => setTimeout(res, 1200));
+      const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book);
+      processed++;
 
-    if (details.networkError) {
-      if (details.rateLimited) {
-        // Books API je vyčerpané a Wikidata pre túto knihu nič nenašla —
-        // preskočíme ju (skúsi sa znova nabudúce) a pokračujeme ďalšími,
-        // kde Wikidata ešte môže niečo nájsť. Books API sa medzitým
-        // automaticky "odpočíva" cez rateLimitedUntil vo fetchBookDetails.
-        rateLimitedCount++;
-        // Počítadlo priebehu necháme viditeľné aj nad chybovou hláškou,
-        // nech je jasné, že beh stále pokračuje na pozadí.
-        statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
+      // Uložíme si, ktoré zdroje boli vyskúšané, bez ohľadu na výsledok —
+      // nech sa pri ďalšom behu zbytočne neopakujú zdroje, ktoré už raz nič nenašli.
+      if (details.sources) book.sourcesTried = details.sources;
+
+      if (details.networkError) {
+        if (details.rateLimited) {
+          // Books API je vyčerpané a Wikidata pre túto knihu nič nenašla —
+          // preskočíme ju (skúsi sa znova nabudúce) a pokračujeme ďalšími,
+          // kde Wikidata ešte môže niečo nájsť. Books API sa medzitým
+          // automaticky "odpočíva" cez rateLimitedUntil vo fetchBookDetails.
+          rateLimitedCount++;
+          // Počítadlo priebehu necháme viditeľné aj nad chybovou hláškou,
+          // nech je jasné, že beh stále pokračuje na pozadí.
+          statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
+        }
+        // iná sieťová chyba (napr. file:// alebo výpadok, alebo rate-limit) — skús ďalšiu knihu
+        continue;
       }
-      // iná sieťová chyba (napr. file:// alebo výpadok, alebo rate-limit) — skús ďalšiu knihu
-      continue;
-    }
 
-    book.coverUrl = details.coverUrl;
-    book.description = details.description;
-    count++;
-    statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
-    if (count % 8 === 0) {
-      saveBooks();
-      filterAndRenderBooks();
+      book.coverUrl = details.coverUrl;
+      book.description = details.description;
+      count++;
+      statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
+      if (count % 8 === 0) {
+        saveBooks();
+        filterAndRenderBooks();
+      }
     }
-  }
-  saveBooks();
-  filterAndRenderBooks();
+    saveBooks();
 
-  if (rateLimitedCount > 0) {
-    showRetryButton();
-    statusMessage.textContent = '';
-    errorMessage.textContent = `Google Books API bolo vyčerpané pre ${rateLimitedCount} kníh (skúsené aspoň cez Wikidata, no tá pokrýva len známejšie diela). Skús to znova neskôr, alebo zajtra po obnovení dennej kvóty.`;
-  } else {
-    hideLoader();
+    if (rateLimitedCount > 0) {
+      showRetryButton();
+      statusMessage.textContent = '';
+      errorMessage.textContent = `Google Books API bolo vyčerpané pre ${rateLimitedCount} kníh (skúsené aspoň cez Wikidata, no tá pokrýva len známejšie diela). Skús to znova neskôr, alebo zajtra po obnovení dennej kvóty.`;
+    } else {
+      hideLoader();
+    }
+  } finally {
+    fetchInProgress = false;
+    fetchMissingBtn.disabled = false;
+    filterAndRenderBooks();
   }
 }
 
@@ -827,6 +886,7 @@ function escapeHtml(str) {
 function filterAndRenderBooks() {
   renderSidebar();
   ledgerCount.textContent = String(allBooks.length).padStart(3, '0');
+  updateFetchMissingButtonLabel();
 
   const term = searchInput.value.toLowerCase().trim();
   let toDisplay = allBooks;
@@ -908,7 +968,10 @@ function createBookElement(book) {
   el.className = 'book-card';
   const cover = book.coverUrl;
   const spine = spineColorForGenre(book.genre);
-  const stillLoading = !cover && book.description === null;
+  // "stillLoading" je true len počas aktívneho behu dopĺňania (fetchInProgress),
+  // inak rovno zobrazíme placeholder chrbát — žiadne automatické hľadanie
+  // na pozadí už neprebieha, dokým ho používateľ sám nespustí tlačidlom.
+  const stillLoading = !cover && book.description === null && fetchInProgress;
 
   el.innerHTML = `
     <div class="book-cover">
@@ -984,7 +1047,8 @@ async function handleDetailClick(bookId) {
     modalCover.style.background = 'var(--paper-deep)';
 
     try {
-      const details = await fetchBookDetails(book.title, book.author, book.originalTitle);
+      const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book);
+      if (details.sources) book.sourcesTried = details.sources;
       if (!details.networkError) {
         if (!book.coverUrl) book.coverUrl = details.coverUrl; // nepreписuj vlastný/už nájdený obal
         book.description = details.description;
@@ -1114,7 +1178,11 @@ async function rescanFromModal() {
   modalCover.style.background = 'var(--bg-sunk)';
 
   try {
-    const details = await fetchBookDetails(book.title, book.author, book.originalTitle);
+    // Manuálny rescan ignoruje predošlý sourcesTried stav — používateľ to klikol
+    // zámerne, takže chceme skutočne znova skúsiť všetky tri zdroje.
+    book.sourcesTried = {};
+    const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book);
+    if (details.sources) book.sourcesTried = details.sources;
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
@@ -1290,7 +1358,11 @@ async function rescanBook(bookId, buttonEl) {
   }
 
   try {
-    const details = await fetchBookDetails(book.title, book.author, book.originalTitle);
+    // Manuálny rescan ignoruje predošlý sourcesTried stav — používateľ to klikol
+    // zámerne, takže chceme skutočne znova skúsiť všetky tri zdroje.
+    book.sourcesTried = {};
+    const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book);
+    if (details.sources) book.sourcesTried = details.sources;
     if (!details.networkError) {
       book.coverUrl = details.coverUrl;
       book.description = details.description;
@@ -1377,6 +1449,13 @@ retryDetailsBtn.addEventListener('click', () => {
   fetchAllMissingDetails();
 });
 
+fetchMissingBtn.addEventListener('click', () => {
+  lastNetworkErrorShown = false;
+  errorMessage.textContent = '';
+  hideRetryButton();
+  fetchAllMissingDetails();
+});
+
 exportBtn.addEventListener('click', exportCatalog);
 
 importBtn.addEventListener('click', () => {
@@ -1414,7 +1493,10 @@ async function init() {
   await loadBooks();
   filterAndRenderBooks();
 
-  fetchAllMissingDetails();
+  // Dopĺňanie obalov/popisov sa už nespúšťa automaticky pri každom otvorení
+  // stránky (spôsobovalo to zbytočné opakované vyčerpávanie API kvót) —
+  // spustí sa len manuálne, tlačidlom "Doplniť chýbajúce obaly".
+  updateFetchMissingButtonLabel();
 }
 
 document.addEventListener('DOMContentLoaded', init);
