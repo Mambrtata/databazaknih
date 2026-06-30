@@ -3297,85 +3297,56 @@ async function generateAiCover(book) {
   }
 
   coverGalleryGenerateBtn.disabled = true;
-  coverGalleryGenerateBtn.textContent = '⏳ Analyzujem knihu…';
-  coverGalleryStatus.textContent = 'Gemini analyzuje knihu a pripravuje obal…';
+  coverGalleryGenerateBtn.textContent = '⏳ Generujem…';
+  coverGalleryStatus.textContent = 'Gemini analyzuje knihu a generuje obal…';
 
   try {
-    // Krok 1: Gemini Flash zistí vizuálny kontext knihy a navrhne detailný
-    // obrazový prompt pre Imagen — lepšie ako posielať holý názov/žáner.
-    const contextPrompt = `You are an expert book cover art director. Based on the following book information, write a detailed visual prompt for an AI image generator to create an authentic, period-appropriate book cover.
-
-Book: "${book.title}"
-Author: ${book.author || 'unknown'}
-Genre: ${book.genre || 'unknown'}
-Year: ${book.publishYear || 'unknown'}
-Description: ${book.description ? book.description.slice(0, 400) : 'not available'}
-
-Write ONLY the image generation prompt (2-4 sentences). Include:
-- Start with: "Book cover for '[book title]' by [author],"
-- Visual style appropriate to the era and genre (e.g. 1960s Soviet realism, Art Nouveau, pulp fiction, etc.)
-- Key visual elements, mood, color palette
-- Composition style (close-up portrait, landscape, abstract, etc.)
-- End with: "Professional book cover illustration, no text, no letters, no title on the image."
-
-Respond with the prompt only, no explanation.`;
-
-    const contextRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: contextPrompt }] }],
-          generationConfig: { maxOutputTokens: 300, temperature: 0.7 }
-        })
-      }
-    );
-
-    if (!contextRes.ok) throw new Error(`Analýza zlyhala: HTTP ${contextRes.status}`);
-    const contextData = await contextRes.json();
-    const imagePrompt = contextData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!imagePrompt) throw new Error('Gemini nevygeneroval prompt pre obal.');
-
-    coverGalleryGenerateBtn.textContent = '⏳ Generujem obal…';
-    coverGalleryStatus.textContent = `Generujem obal: "${imagePrompt.slice(0, 80)}…"`;
-
-    // Krok 2: Imagen 3 cez Netlify proxy (priame volanie z prehliadača zlyhá kvôli CORS)
-    const imagenRes = await fetch('/.netlify/functions/imagen-proxy', {
+    const res = await fetch('/.netlify/functions/imagen-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: imagePrompt, apiKey })
+      body: JSON.stringify({
+        title: book.title,
+        author: book.author || '',
+        genre: book.genre || '',
+        year: book.publishYear || '',
+        description: book.description || '',
+        apiKey
+      })
     });
 
-    if (!imagenRes.ok) {
-      const err = await imagenRes.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `Imagen zlyhal: HTTP ${imagenRes.status}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
     }
 
-    const imagenData = await imagenRes.json();
-    const predictions = imagenData.predictions || [];
+    if (data._prompt) {
+      coverGalleryStatus.textContent = `Prompt: "${data._prompt.slice(0, 60)}…"`;
+    }
 
-    if (predictions.length === 0) {
-      coverGalleryStatus.textContent = 'Imagen negeneroval žiadny obal. Skús znova.';
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    let found = 0;
+    parts.forEach((p) => {
+      if (p.inlineData?.mimeType?.startsWith('image/')) {
+        const url = `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
+        galleryCovers.push({ url, source: `AI obal ${found + 1}`, generated: true });
+        found++;
+      }
+    });
+
+    if (found === 0) {
+      coverGalleryStatus.textContent = 'Gemini negeneroval žiadny obal. Skús znova.';
       return;
     }
 
-    predictions.forEach((p, i) => {
-      if (p.bytesBase64Encoded) {
-        const url = `data:image/png;base64,${p.bytesBase64Encoded}`;
-        galleryCovers.push({ url, source: `AI obal ${i + 1}`, generated: true });
-      }
-    });
-
-    coverGalleryStatus.textContent = `Vygenerované ${predictions.length} AI obaly. Klikni pre výber.`;
+    coverGalleryStatus.textContent = `Vygenerované ${found} AI obaly. Klikni pre výber.`;
     renderGalleryCovers();
   } catch (err) {
     coverGalleryStatus.textContent = `Chyba: ${err.message}`;
-    showToast('Generovanie AI obalu zlyhalo: ' + err.message, 'error', 5000);
+    showToast('Generovanie zlyhalo: ' + err.message, 'error', 5000);
   } finally {
     coverGalleryGenerateBtn.disabled = false;
-    coverGalleryGenerateBtn.textContent = '✨ Generovať AI obal';
+    coverGalleryGenerateBtn.textContent = '✨ Generovať AI';
   }
 }
 
