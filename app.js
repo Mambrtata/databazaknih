@@ -1512,7 +1512,7 @@ async function bulkFindIsbn() {
 
   bulkIsbnInProgress = true;
   bulkFindIsbnBtn.disabled = true;
-  showScanOverlay('Hľadám ISBN', `0 z ${missing.length} skontrolovaných`);
+  statusMessage.textContent = `Hľadám ISBN — 0 z ${missing.length}…`;
 
   let foundCount = 0;
   let processed = 0;
@@ -1532,11 +1532,11 @@ async function bulkFindIsbn() {
         foundCount++;
         if (foundCount % 8 === 0) saveBooks();
       }
-      updateScanOverlay(`${processed} z ${missing.length} skontrolovaných, ${foundCount} nájdených`);
+      statusMessage.textContent = `Hľadám ISBN — ${processed} z ${missing.length}, nájdených ${foundCount}…`;
     }
     saveBooks(true);
     filterAndRenderBooks();
-    hideScanOverlay();
+    statusMessage.textContent = '';
     if (foundCount > 0) {
       showToast(`Dohľadané ISBN pre ${foundCount} z ${missing.length} kníh (oranžovo — over si ich, ide o pravdepodobnú zhodu podľa názvu).`, 'success', 7000);
     } else {
@@ -1571,7 +1571,7 @@ async function bulkFindMeta() {
 
   bulkMetaInProgress = true;
   bulkFindMetaBtn.disabled = true;
-  showScanOverlay('Hľadám rok a počet strán', `0 z ${missing.length} skontrolovaných`);
+  statusMessage.textContent = `Hľadám rok a strany — 0 z ${missing.length}…`;
 
   let foundCount = 0;
   let processed = 0;
@@ -1590,11 +1590,11 @@ async function bulkFindMeta() {
         foundCount++;
         if (foundCount % 8 === 0) saveBooks();
       }
-      updateScanOverlay(`${processed} z ${missing.length} skontrolovaných, ${foundCount} nájdených`);
+      statusMessage.textContent = `Hľadám rok/strany — ${processed} z ${missing.length}, nájdených ${foundCount}…`;
     }
     saveBooks(true);
     filterAndRenderBooks();
-    hideScanOverlay();
+    statusMessage.textContent = '';
     if (foundCount > 0) {
       showToast(`Dohľadané údaje pre ${foundCount} z ${missing.length} kníh.`, 'success', 6000);
     } else {
@@ -2464,15 +2464,13 @@ async function rescanFromModal() {
   if (!book) return;
 
   modalRescanBtn.disabled = true;
-  modalRescanBtn.textContent = '… hľadám';
+  modalRescanBtn.style.opacity = '0.5';
   modalLoader.style.display = 'block';
   modalDescription.style.display = 'none';
   modalCover.removeAttribute('src');
   modalCover.style.background = 'var(--bg-sunk)';
 
   try {
-    // Manuálny rescan ignoruje predošlý sourcesTried stav aj výber zdrojov v paneli —
-    // používateľ to klikol zámerne, takže chceme skutočne znova skúsiť všetky tri zdroje.
     book.sourcesTried = {};
     const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book, { openLibrary: true, googleBooks: true, wikidata: true });
     if (details.sources) book.sourcesTried = details.sources;
@@ -2489,6 +2487,40 @@ async function rescanFromModal() {
     } else {
       modalCover.removeAttribute('src');
     }
+
+    const foundSomething = book.coverUrl || book.description;
+
+    // Ak databázy nič nenašli, skúsime Gemini web search na pozadí
+    if (!foundSomething && !details.networkError) {
+      const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+      if (apiKey) {
+        modalDescription.textContent = 'AI hľadá metadata…';
+        modalDescription.style.display = 'block';
+        modalLoader.style.display = 'none';
+
+        const result = await searchViaGeminiWeb(book);
+        if (result) {
+          if (result.description && !book.description) {
+            book.description = result.description;
+            updateTranslateButtonVisibility(book);
+          }
+          if (result.coverImageUrl && !book.coverUrl) {
+            book.coverUrl = result.coverImageUrl;
+            modalCover.src = result.coverImageUrl;
+          } else if (result.coverImageUrl) {
+            galleryCoverBookId = currentModalBookId;
+            if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
+              galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
+            }
+          }
+          if (result.description || result.coverImageUrl) {
+            saveBooks(true);
+            filterAndRenderBooks();
+          }
+        }
+      }
+    }
+
     modalDescription.textContent = details.networkError
       ? 'Nepodarilo sa pripojiť k internetu / Google Books API. Skús to znova neskôr.'
       : (book.description || t('descNotFound'));
@@ -2499,6 +2531,7 @@ async function rescanFromModal() {
     modalLoader.style.display = 'none';
     modalDescription.style.display = 'block';
     modalRescanBtn.disabled = false;
+    modalRescanBtn.style.opacity = '';
   }
 }
 
@@ -3147,14 +3180,22 @@ modalCoverBtn.addEventListener('click', () => {
 // { url, source, generated } kde generated = true pre AI obaly
 let galleryCovers = [];
 
+// ID knihy pre ktorú sú galleryCovers platné
+let galleryCoverBookId = null;
+
 function openCoverGallery() {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
-  // Začneme s aktuálnym obalom ak existuje
-  galleryCovers = book.coverUrl ? [{ url: book.coverUrl, source: 'Aktuálny', generated: false }] : [];
+
+  // Resetuj len ak sa zmenila kniha
+  if (galleryCoverBookId !== currentModalBookId) {
+    galleryCoverBookId = currentModalBookId;
+    galleryCovers = book.coverUrl ? [{ url: book.coverUrl, source: 'Aktuálny', generated: false }] : [];
+  }
+
   coverGalleryGrid.innerHTML = '';
   coverGalleryStatus.textContent = galleryCovers.length > 0
-    ? 'Aktuálny obal. Klikni pre potvrdenie alebo hľadaj ďalšie.'
+    ? 'Klikni na obal pre výber.'
     : 'Žiadny obal. Hľadaj v databázach alebo generuj AI obal.';
   coverGalleryModal.style.display = 'flex';
   coverGalleryGenerateBtn.disabled = false;
@@ -3368,11 +3409,17 @@ modalAiBtn.addEventListener('click', async () => {
     }
 
     if (result.coverImageUrl) {
+      galleryCoverBookId = currentModalBookId;
       if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
         galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
       }
-      showToast('Obal nájdený — otvor Cover pre výber.', 'success', 3000);
-      changed = true;
+      // Nastav obal len ak kniha žiadny nemá
+      if (!book.coverUrl) {
+        book.coverUrl = result.coverImageUrl;
+        modalCover.src = result.coverImageUrl;
+        changed = true;
+      }
+      openCoverGallery();
     }
 
     if (!result.description && !result.coverImageUrl) {
@@ -3441,17 +3488,23 @@ coverGalleryUrlConfirm.addEventListener('click', async () => {
   coverGalleryStatus.textContent = 'Sťahujem obrázok…';
 
   try {
-    const res = await fetch('/.netlify/functions/image-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    const data = await res.json();
-    if (!data.dataUrl) throw new Error(data.error || 'Nepodarilo sa stiahnuť obrázok');
+    let finalUrl = url;
+    try {
+      const res = await fetch('/.netlify/functions/image-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (data.dataUrl) finalUrl = data.dataUrl;
+    } catch (proxyErr) {
+      // Proxy nedostupná (napr. lokálne) — ulož priamu URL
+      console.warn('image-proxy nedostupná, používam priamu URL:', proxyErr.message);
+    }
 
-    galleryCovers.push({ url: data.dataUrl, source: 'Vlastná URL', generated: false });
+    galleryCovers.push({ url: finalUrl, source: 'Vlastná URL', generated: false });
     renderGalleryCovers();
-    selectGalleryCover(data.dataUrl);
+    selectGalleryCover(finalUrl);
     coverGalleryUrlBox.style.display = 'none';
     coverGalleryUrlInput.value = '';
     coverGalleryStatus.textContent = 'Obal uložený.';
