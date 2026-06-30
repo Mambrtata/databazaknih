@@ -3341,18 +3341,12 @@ Respond with the prompt only, no explanation.`;
     coverGalleryGenerateBtn.textContent = '⏳ Generujem obal…';
     coverGalleryStatus.textContent = `Generujem obal: "${imagePrompt.slice(0, 80)}…"`;
 
-    // Krok 2: Imagen 3 vygeneruje obal podľa detailného promptu
-    const imagenRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: imagePrompt }],
-          parameters: { sampleCount: 2, aspectRatio: '2:3' }
-        })
-      }
-    );
+    // Krok 2: Imagen 3 cez Netlify proxy (priame volanie z prehliadača zlyhá kvôli CORS)
+    const imagenRes = await fetch('/.netlify/functions/imagen-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: imagePrompt, apiKey })
+    });
 
     if (!imagenRes.ok) {
       const err = await imagenRes.json().catch(() => ({}));
