@@ -28,6 +28,7 @@ const GENRES = [
 const STORAGE_KEY = "domaca_kniznica_books_v1";
 const API_KEY_STORAGE = "domaca_kniznica_gemini_key";
 const BOOKS_API_KEY_STORAGE = "domaca_kniznica_books_api_key";
+const SORT_PREFERENCE_STORAGE = "domaca_kniznica_sort_pref";
 
 // Paleta "knižných chrbtov" pre placeholder, keď sa obal nenájde — cyklicky podľa žánru
 const SPINE_PALETTE = [
@@ -86,6 +87,7 @@ const isbnAddUpload = document.getElementById('isbnAddUpload'),
   errorMessage = document.getElementById('errorMessage'),
   emptyState = document.getElementById('emptyState'),
   searchInput = document.getElementById('searchInput'),
+  sortSelect = document.getElementById('sortSelect'),
   bookCount = document.getElementById('bookCount'),
   ledgerCount = document.getElementById('ledgerCount'),
   syncStatusEl = document.getElementById('syncStatus'),
@@ -104,12 +106,18 @@ const isbnAddUpload = document.getElementById('isbnAddUpload'),
   booksApiKeyInput = document.getElementById('booksApiKeyInput'),
   booksApiKeyStatus = document.getElementById('booksApiKeyStatus'),
   retryDetailsBtn = document.getElementById('retryDetailsBtn'),
+  scanOverlay = document.getElementById('scanOverlay'),
+  scanTitle = document.getElementById('scanTitle'),
+  scanSubtitle = document.getElementById('scanSubtitle'),
+  toastContainer = document.getElementById('toastContainer'),
   fetchMissingBtn = document.getElementById('fetchMissingBtn'),
   stopFetchBtn = document.getElementById('stopFetchBtn'),
   sourceOpenLibraryCheckbox = document.getElementById('sourceOpenLibrary'),
   sourceGoogleBooksCheckbox = document.getElementById('sourceGoogleBooks'),
   sourceWikidataCheckbox = document.getElementById('sourceWikidata'),
   missingCoversInfo = document.getElementById('missingCoversInfo'),
+  bulkFindIsbnBtn = document.getElementById('bulkFindIsbnBtn'),
+  missingIsbnInfo = document.getElementById('missingIsbnInfo'),
   customCoverUpload = document.getElementById('customCoverUpload'),
   modalCoverBtn = document.getElementById('modalCoverBtn'),
   modalTranslateBtn = document.getElementById('modalTranslateBtn'),
@@ -602,6 +610,48 @@ function hideRetryButton() {
 }
 
 // ============================================================
+// Výrazný plnoplošný indikátor počas analýzy fotky (sken police/ISBN) —
+// odlišný od bežného malého loadera, nech je jasné, že prebieha niečo
+// dôležité a môže to chvíľu trvať.
+// ============================================================
+
+function showScanOverlay(title, subtitle) {
+  scanTitle.textContent = title || 'Analyzujem fotku';
+  scanSubtitle.innerHTML = (subtitle || 'Pracujem na tom') + '<span class="scan-dots"><span></span><span></span><span></span></span>';
+  scanOverlay.classList.remove('hidden');
+  requestAnimationFrame(() => { scanOverlay.style.opacity = '1'; });
+}
+
+function updateScanOverlay(subtitle) {
+  scanSubtitle.innerHTML = subtitle + '<span class="scan-dots"><span></span><span></span><span></span></span>';
+}
+
+function hideScanOverlay() {
+  scanOverlay.style.opacity = '0';
+  setTimeout(() => scanOverlay.classList.add('hidden'), 250);
+}
+
+// ============================================================
+// Toast notifikácie — výrazné, dočasné hlášky v rohu obrazovky pre
+// dôležité udalosti (napr. úspešné hromadné pridanie kníh), ktoré sa
+// ľahko prehliadnu v tichom statusMessage texte pod formulárom.
+// ============================================================
+
+function showToast(message, type = 'success', durationMs = 5000) {
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + type;
+  const icon = type === 'success' ? '✅' : (type === 'error' ? '⚠️' : 'ℹ️');
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span>${escapeHtml(message)}</span>`;
+  toastContainer.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, durationMs);
+}
+
+// ============================================================
 // Google Books API — obal + popis (funguje aj bez kľúča, ale
 // s vlastným Google API kľúčom je oveľa spoľahlivejšie)
 // ============================================================
@@ -843,6 +893,38 @@ async function fetchFromOpenLibraryByIsbn(isbn) {
   }
 }
 
+// Skúsi nájsť ISBN pre knihu podľa názvu a autora (fulltextové vyhľadávanie,
+// teda menej spoľahlivé než keby sme ISBN odfotili priamo z knihy — výsledok
+// sa preto vždy označí ako 'searched', nie 'scanned', a používateľ ho vidí
+// ako "pravdepodobné" s možnosťou overiť/opraviť).
+async function findIsbnByTitle(title, author) {
+  if (Date.now() < openLibraryRateLimitedUntil) return null;
+  try {
+    const query = `${title}${author ? ' ' + author : ''}`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=title,author_name,isbn&limit=3`;
+    const res = await fetchWithTimeout(url, 6000);
+    if (res.status === 429) {
+      openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
+      return null;
+    }
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const docs = data.docs || [];
+    for (const doc of docs) {
+      if (author && doc.author_name && !authorMatches(author, doc.author_name)) continue;
+      if (Array.isArray(doc.isbn) && doc.isbn.length > 0) {
+        // Uprednostníme 13-miestne ISBN, ak je dostupné.
+        const isbn13 = doc.isbn.find(i => normalizeIsbn(i).length === 13);
+        return normalizeIsbn(isbn13 || doc.isbn[0]);
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function fetchFromOpenLibrary(title, author) {
   if (Date.now() < openLibraryRateLimitedUntil) {
     return { coverUrl: null, description: null };
@@ -1042,6 +1124,68 @@ function updateFetchMissingButtonLabel() {
   } else {
     missingCoversInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} obal. Spustenie skúsi vybrané zdroje nižšie (zdroje, ktoré už raz nič nenašli, sa pri tej istej knihe preskočia).`;
     fetchMissingBtn.disabled = false;
+  }
+  updateMissingIsbnInfo();
+}
+
+function updateMissingIsbnInfo() {
+  if (!missingIsbnInfo) return;
+  const missingCount = allBooks.filter(b => !b.isbn).length;
+  if (missingCount === 0) {
+    missingIsbnInfo.textContent = 'Všetky knihy v katalógu už majú priradené ISBN.';
+    bulkFindIsbnBtn.disabled = true;
+  } else {
+    missingIsbnInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} priradené ISBN. Pre staré vydania (najmä spred ~1970) ISBN často neexistuje vôbec — tie zostanú bez výsledku.`;
+    bulkFindIsbnBtn.disabled = false;
+  }
+}
+
+// Hromadne skúsi dohľadať ISBN pre knihy, ktoré ho ešte nemajú — podľa
+// názvu a autora (fulltextové vyhľadávanie na Open Library). Keďže ide
+// o nepriamy, menej istý spôsob než priame odfotenie ISBN z knihy,
+// výsledok sa vždy označí ako 'searched' (zobrazí sa oranžovo, na overenie),
+// nikdy nie ako 'scanned'.
+let bulkIsbnInProgress = false;
+
+async function bulkFindIsbn() {
+  const missing = allBooks.filter(b => !b.isbn);
+  if (missing.length === 0 || bulkIsbnInProgress) return;
+
+  bulkIsbnInProgress = true;
+  bulkFindIsbnBtn.disabled = true;
+  showScanOverlay('Hľadám ISBN', `0 z ${missing.length} skontrolovaných`);
+
+  let foundCount = 0;
+  let processed = 0;
+
+  try {
+    for (const book of missing) {
+      if (book.isbn) { processed++; continue; } // medzitým mohlo pribudnúť (napr. ručne)
+
+      await new Promise(res => setTimeout(res, 1000));
+      const isbn = await findIsbnByTitle(book.originalTitle || book.title, book.author);
+      processed++;
+
+      if (isbn) {
+        book.isbn = isbn;
+        book.isbnSource = 'searched';
+        foundCount++;
+        if (foundCount % 8 === 0) saveBooks();
+      }
+      updateScanOverlay(`${processed} z ${missing.length} skontrolovaných, ${foundCount} nájdených`);
+    }
+    saveBooks(true);
+    filterAndRenderBooks();
+    hideScanOverlay();
+    if (foundCount > 0) {
+      showToast(`Dohľadané ISBN pre ${foundCount} z ${missing.length} kníh (oranžovo — over si ich, ide o pravdepodobnú zhodu podľa názvu).`, 'success', 7000);
+    } else {
+      showToast('Pre žiadnu z kníh sa nepodarilo dohľadať ISBN. Staré vydania ho často nemajú vôbec.', 'info');
+    }
+  } finally {
+    bulkIsbnInProgress = false;
+    bulkFindIsbnBtn.disabled = false;
+    updateMissingIsbnInfo();
   }
 }
 
@@ -1253,6 +1397,9 @@ async function fetchAllMissingDetails() {
       errorMessage.textContent = `Google Books API bolo vyčerpané pre ${rateLimitedCount} kníh (skúsené aspoň cez ostatné zvolené zdroje). Skús to znova neskôr, alebo zajtra po obnovení dennej kvóty.`;
     } else {
       hideLoader();
+      if (count > 0) {
+        showToast(`Doplnené obaly/popisy pre ${count} z ${missing.length} kníh.`, 'success');
+      }
     }
   } finally {
     fetchInProgress = false;
@@ -1293,7 +1440,32 @@ function filterAndRenderBooks() {
       (b.author && b.author.toLowerCase().includes(term))
     );
   }
+  toDisplay = sortBooks(toDisplay, sortSelect.value);
   renderBooks(toDisplay);
+}
+
+// Zoradí kópiu poľa kníh podľa zvoleného kritéria. Triedenie sa aplikuje
+// vnútri každej žánrovej sekcie (poradie sekcií samotných zostáva abecedné).
+function sortBooks(books, sortKey) {
+  const sorted = [...books];
+  const byTitle = (a, b) => a.title.localeCompare(b.title, 'sk', { sensitivity: 'base' });
+  const byAuthor = (a, b) => (a.author || '').localeCompare(b.author || '', 'sk', { sensitivity: 'base' });
+
+  switch (sortKey) {
+    case 'title-desc':
+      return sorted.sort((a, b) => byTitle(b, a));
+    case 'author-asc':
+      return sorted.sort((a, b) => byAuthor(a, b) || byTitle(a, b));
+    case 'author-desc':
+      return sorted.sort((a, b) => byAuthor(b, a) || byTitle(a, b));
+    case 'added-desc':
+      return sorted.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    case 'added-asc':
+      return sorted.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    case 'title-asc':
+    default:
+      return sorted.sort(byTitle);
+  }
 }
 
 function renderSidebar() {
@@ -1510,8 +1682,14 @@ function normalizeIsbn(raw) {
 
 function updateModalIsbnDisplay(book) {
   if (book.isbn) {
-    modalIsbn.textContent = 'ISBN ' + book.isbn;
-    modalIsbn.style.display = 'inline';
+    const isCertain = book.isbnSource === 'scanned' || book.isbnSource === 'manual';
+    const dotColor = isCertain ? '#3F8F5C' : '#D9A441';
+    const title = isCertain
+      ? 'Odfotené/zadané ručne — isté'
+      : 'Dohľadané podľa názvu — over si to';
+    modalIsbn.innerHTML = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${dotColor}; margin-right:5px;" title="${title}"></span>ISBN ${escapeHtml(book.isbn)}`;
+    modalIsbn.style.display = 'inline-flex';
+    modalIsbn.style.alignItems = 'center';
   } else {
     modalIsbn.style.display = 'none';
   }
@@ -1571,6 +1749,7 @@ function saveEditedBook() {
   book.author = editAuthorInput.value.trim();
   book.originalTitle = editOriginalTitleInput.value.trim();
   book.isbn = normalizeIsbn(editIsbnInput.value);
+  if (isbnChanged) book.isbnSource = book.isbn ? 'manual' : null;
   book.genre = editGenreInput.value;
 
   // Ak sa zmenil názov, autor, originálny názov alebo ISBN, predošlý obal/popis
@@ -1659,8 +1838,7 @@ async function analyzeImage(base64ImageData) {
     return;
   }
 
-  addFlowStatus.textContent = 'Analyzujem fotku police… môže to chvíľu trvať.';
-  showLoader('Analyzujem fotku… môže to chvíľu trvať.');
+  showScanOverlay('Analyzujem fotku police', 'Rozpoznávam knihy na chrbtoch');
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
@@ -1702,12 +1880,13 @@ async function analyzeImage(base64ImageData) {
       if (candidate && candidate.content?.parts?.[0]?.text) {
         const identifiedBooks = JSON.parse(candidate.content.parts[0].text);
         if (Array.isArray(identifiedBooks) && identifiedBooks.length > 0) {
-          hideLoader();
-          addFlowStatus.textContent = '';
+          updateScanOverlay(`Nájdených ${identifiedBooks.length} kníh`);
+          await new Promise(res => setTimeout(res, 500)); // krátka pauza, nech sa stihne zobraziť výsledok
+          hideScanOverlay();
           openShelfReviewModal(identifiedBooks);
         } else {
+          hideScanOverlay();
           showError('Na fotke sa nepodarilo rozpoznať žiadne knihy. Skús jasnejšiu fotku chrbtov kníh.');
-          hideLoader();
         }
       } else {
         throw new Error("Neočakávaná štruktúra odpovede od AI.");
@@ -1715,17 +1894,18 @@ async function analyzeImage(base64ImageData) {
       return;
     } catch (error) {
       if (error && error.fatal) {
+        hideScanOverlay();
         showError(error.message);
-        hideLoader();
         return;
       }
       attempts++;
       console.error(`Pokus ${attempts} zlyhal:`, error);
       if (attempts >= maxAttempts) {
+        hideScanOverlay();
         showError("Nepodarilo sa analyzovať obrázok ani po viacerých pokusoch. Skús to znova o chvíľu.");
-        hideLoader();
         break;
       }
+      updateScanOverlay(`Skúšam znova (pokus ${attempts + 1}/${maxAttempts})`);
       await new Promise(res => setTimeout(res, Math.pow(2, attempts) * 1000));
     }
   }
@@ -1806,15 +1986,16 @@ shelfReviewAddBtn.addEventListener('click', async () => {
   }
 
   closeShelfReviewModal();
-  showLoader(`Pridávam ${toAdd.length} kníh a hľadám obaly… (0/${toAdd.length})`);
+  showScanOverlay('Pridávam knihy', `0 z ${toAdd.length} hotovo`);
 
   let count = 0;
   for (const b of toAdd) {
     await addBook(b.title, b.author, "Naskenované z fotky", '', true);
     count++;
-    statusMessage.textContent = `Pridávam ${toAdd.length} kníh… (${count}/${toAdd.length})`;
+    updateScanOverlay(`${count} z ${toAdd.length} hotovo`);
   }
-  hideLoader();
+  hideScanOverlay();
+  showToast(`Pridaných ${toAdd.length} ${toAdd.length === 1 ? 'kniha' : (toAdd.length < 5 ? 'knihy' : 'kníh')} do katalógu. Dopĺňam obaly a popisy na pozadí…`, 'success', 6000);
   await fetchAllMissingDetails();
 });
 
@@ -1881,18 +2062,15 @@ async function analyzeIsbnImage(base64ImageData) {
 // dohľadá názov/autora/obal/popis (Open Library, prípadne Google Books)
 // a rovno pridá novú knihu do katalógu.
 async function addBookFromIsbnScan(base64ImageData) {
-  addFlowStatus.textContent = 'Čítam ISBN z fotky…';
-  showLoader('Čítam ISBN z fotky…');
+  showScanOverlay('Čítam ISBN', 'Rozpoznávam čiarový kód');
 
   const isbn = await analyzeIsbnImage(base64ImageData);
   if (!isbn) {
-    hideLoader();
-    addFlowStatus.textContent = '';
+    hideScanOverlay();
     return;
   }
 
-  addFlowStatus.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám knihu…`;
-  statusMessage.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám knihu…`;
+  updateScanOverlay(`Rozpoznané ISBN ${isbn} — hľadám knihu`);
 
   // Skúsime najprv Open Library podľa ISBN (presné, žiadny limit) — z výsledku
   // chceme aj názov a autora, nie len obal, takže voláme priamo s jscmd=data.
@@ -1937,12 +2115,10 @@ async function addBookFromIsbnScan(base64ImageData) {
     }
   }
 
-  hideLoader();
-  addFlowStatus.textContent = '';
-  statusMessage.textContent = '';
+  hideScanOverlay();
 
   if (!title) {
-    showError(`ISBN ${isbn} sa rozpoznalo, ale knihu sa nepodarilo dohľadať v žiadnej databáze. Skús ju pridať ručne a ISBN doplň cez „✏️ Upraviť“.`);
+    showToast(`ISBN ${isbn} sa rozpoznalo, ale knihu sa nepodarilo dohľadať v žiadnej databáze. Skús ju pridať ručne.`, 'error');
     return;
   }
 
@@ -1953,7 +2129,7 @@ async function addBookFromIsbnScan(base64ImageData) {
     genre: 'Naskenované z fotky',
     originalTitle: '',
     isbn: isbn,
-    coverUrl: coverUrl || null,
+    isbnSource: 'scanned',
     description: description || null,
     sourcesTried: { openLibraryIsbn: coverUrl ? 'found' : 'empty' },
     createdAt: Date.now()
@@ -1961,7 +2137,7 @@ async function addBookFromIsbnScan(base64ImageData) {
   allBooks.unshift(newBook);
   saveBooks(true);
   filterAndRenderBooks();
-  addFlowStatus.textContent = `Pridané: „${newBook.title}“.`;
+  showToast(`Pridané: „${newBook.title}“`, 'success');
 }
 
 // ============================================================
@@ -2011,6 +2187,11 @@ addBookForm.addEventListener('submit', (event) => {
 });
 
 searchInput.addEventListener('input', filterAndRenderBooks);
+
+sortSelect.addEventListener('change', () => {
+  localStorage.setItem(SORT_PREFERENCE_STORAGE, sortSelect.value);
+  filterAndRenderBooks();
+});
 
 genreListContainer.addEventListener('click', (e) => {
   e.preventDefault();
@@ -2162,6 +2343,7 @@ isbnScanUpload.addEventListener('change', (event) => {
 
     if (isbn) {
       book.isbn = isbn;
+      book.isbnSource = 'scanned';
       // Nové ISBN — predošlý obal/popis (ak vznikol z menej presného fulltextového
       // vyhľadávania) môže byť nahradený presnejším výsledkom podľa ISBN.
       if (!book.customCover) {
@@ -2255,6 +2437,8 @@ fetchMissingBtn.addEventListener('click', () => {
   fetchAllMissingDetails();
 });
 
+bulkFindIsbnBtn.addEventListener('click', bulkFindIsbn);
+
 stopFetchBtn.addEventListener('click', () => {
   fetchShouldStop = true;
   stopFetchBtn.disabled = true;
@@ -2294,6 +2478,9 @@ async function init() {
   populateGenreSelect();
   loadApiKey();
   loadBooksApiKey();
+
+  const savedSort = localStorage.getItem(SORT_PREFERENCE_STORAGE);
+  if (savedSort) sortSelect.value = savedSort;
 
   // Zobrazíme hneď lokálnu (cache) verziu, nech používateľ nečaká na sieť…
   loadLocalBooksOnly();
