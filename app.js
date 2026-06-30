@@ -97,12 +97,14 @@ const imageUpload = document.getElementById('imageUpload'),
   missingCoversInfo = document.getElementById('missingCoversInfo'),
   customCoverUpload = document.getElementById('customCoverUpload'),
   modalCoverBtn = document.getElementById('modalCoverBtn'),
+  modalTranslateBtn = document.getElementById('modalTranslateBtn'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
   modalEditBtn = document.getElementById('modalEditBtn'),
   modalSaveBtn = document.getElementById('modalSaveBtn'),
   modalCancelEditBtn = document.getElementById('modalCancelEditBtn'),
   modalRescanBtn = document.getElementById('modalRescanBtn'),
+  modalGeminiSearchBtn = document.getElementById('modalGeminiSearchBtn'),
   editTitleInput = document.getElementById('editTitle'),
   editOriginalTitleInput = document.getElementById('editOriginalTitle'),
   editAuthorInput = document.getElementById('editAuthor'),
@@ -825,6 +827,128 @@ function updateFetchMissingButtonLabel() {
   }
 }
 
+// ============================================================
+// Preklad anotácie knihy do slovenčiny cez Gemini API. Popis sa
+// nielen prekladá, ale aj stručne preformuluje vlastnými slovami —
+// nejde o doslovnú reprodukciu pôvodného textu, len o krátku
+// slovenskú anotáciu rovnakého obsahu pre potreby katalógu.
+// ============================================================
+
+// ============================================================
+// Vyhľadanie obalu a popisu cez Gemini s Google Search groundingom.
+// Používa sa ako posledná možnosť pre knihy, ktoré Open Library, Google
+// Books ani Wikidata nenašli — Gemini si samo vykoná webové vyhľadávanie
+// (podobne ako Google "AI Overview") a vráti, čo nájde, vo vlastnej
+// stručnej syntéze (nie doslovnú citáciu zdrojových stránok).
+// ============================================================
+
+async function searchViaGeminiWeb(book) {
+  const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  if (!apiKey) {
+    showError('Pre vyhľadanie cez Gemini (web) najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    return null;
+  }
+
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+  const searchTerm = book.originalTitle ? `${book.title} (${book.originalTitle})` : book.title;
+  const systemPrompt = "You are a helpful research assistant for a personal book catalog. Use web search to find publicly available information about the specific book edition described, then respond with structured JSON only.";
+  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). Skús nájsť priamu URL adresu obrázka obalu tejto konkrétnej knihy (napr. z antikvariátov, knižných databáz alebo vydavateľstiev) a stručne zhrň dej vlastnými slovami v slovenčine (2-4 vety).\n\nOdpovedz IBA validným JSON objektom v tomto tvare, bez markdown formátovania a bez ďalšieho textu:\n{"coverUrl": "https://... alebo null ak si žiadnu nenašiel", "description": "slovenský popis alebo null"}`;
+
+  const payload = {
+    contents: [{ parts: [{ text: userQuery }] }],
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    tools: [{ google_search: {} }]
+  };
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      showError('Vyhľadanie cez Gemini sa nepodarilo: ' + (errBody?.error?.message || ('HTTP ' + response.status)));
+      return null;
+    }
+
+    const result = await response.json();
+    let text = result.candidates?.[0]?.content?.parts?.find(p => p.text)?.text?.trim();
+    if (!text) {
+      showError('Gemini nevrátil žiadnu odpoveď. Skús to znova.');
+      return null;
+    }
+
+    // Gemini niekedy odpoveď zabalí do ```json ... ``` bloku napriek pokynu — očistíme to.
+    text = text.replace(/^```json\s*|\s*```$/g, '').trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      console.error('Gemini web search vrátil text, ktorý sa nepodarilo spracovať ako JSON:', text);
+      showError('Gemini vrátil neočakávaný formát odpovede. Skús to znova.');
+      return null;
+    }
+
+    return {
+      coverUrl: (parsed.coverUrl && parsed.coverUrl !== 'null') ? parsed.coverUrl : null,
+      description: (parsed.description && parsed.description !== 'null') ? parsed.description : null
+    };
+  } catch (error) {
+    console.error('Chyba pri vyhľadávaní cez Gemini web search:', error);
+    showError('Nepodarilo sa spojiť s Gemini API. Skontroluj pripojenie.');
+    return null;
+  }
+}
+
+async function translateDescription(book) {
+  const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  if (!apiKey) {
+    showError('Pre preklad popisu najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    return null;
+  }
+  if (!book.description) return null;
+
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+  const systemPrompt = "You are a helpful assistant that writes short Slovak-language book summaries for a personal library catalog.";
+  const userQuery = `Na základe nasledujúceho anglického/cudzojazyčného popisu knihy "${book.title}" od autora "${book.author || 'neznámy'}" napíš krátku, vlastnými slovami sformulovanú anotáciu v slovenčine (2-4 vety, bez doslovného prekladu vety po vete). Odpovedz IBA samotným slovenským textom anotácie, bez úvodzoviek, bez nadpisu, bez ďalšieho komentára.\n\nPôvodný popis:\n${book.description}`;
+
+  const payload = {
+    contents: [{ parts: [{ text: userQuery }] }],
+    systemInstruction: { parts: [{ text: systemPrompt }] }
+  };
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      showError('Preklad sa nepodaril: ' + (errBody?.error?.message || ('HTTP ' + response.status)));
+      return null;
+    }
+
+    const result = await response.json();
+    const translated = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!translated) {
+      showError('Gemini nevrátil žiadny preložený text. Skús to znova.');
+      return null;
+    }
+    return translated;
+  } catch (error) {
+    console.error('Chyba pri preklade popisu:', error);
+    showError('Nepodarilo sa spojiť s Gemini API pre preklad. Skontroluj pripojenie.');
+    return null;
+  }
+}
+
 async function fetchAllMissingDetails() {
   // Chýba obal = skúsime znova (aj keby kniha už má popis z predošlého behu bez Wikidata fallbacku).
   const missing = allBooks.filter(b => !b.coverUrl);
@@ -1052,6 +1176,15 @@ window.__handleCoverError = function(imgEl) {
 // Detail modal
 // ============================================================
 
+// Jednoduchá heuristika: ak popis neobsahuje žiadnu typickú slovenskú/českú
+// diakritiku (á é í ó ú ý ä ô č š ž ť ď ň ľ ř ě ů), je pravdepodobne v inom
+// jazyku (najčastejšie angličtina, keďže prioritne hľadáme podľa originálu).
+function descriptionLooksForeign(text) {
+  if (!text) return false;
+  const skczDiacritics = /[áéíóúýäôčšžťďňľřěů]/i;
+  return !skczDiacritics.test(text);
+}
+
 async function handleDetailClick(bookId) {
   const book = allBooks.find(b => b.id === bookId);
   if (!book) return;
@@ -1079,11 +1212,13 @@ async function handleDetailClick(bookId) {
     modalDescription.style.display = 'block';
     modalCover.src = book.coverUrl;
     modalDescription.textContent = book.description;
+    updateTranslateButtonVisibility(book);
   } else {
     modalLoader.style.display = 'block';
     modalDescription.style.display = 'none';
     modalCover.removeAttribute('src');
     modalCover.style.background = 'var(--paper-deep)';
+    modalTranslateBtn.style.display = 'none';
 
     try {
       const details = await fetchBookDetails(book.title, book.author, book.originalTitle, book, getEnabledSources());
@@ -1103,6 +1238,7 @@ async function handleDetailClick(bookId) {
       modalDescription.textContent = details.networkError
         ? 'Nepodarilo sa pripojiť k internetu / Google Books API. Skús to znova neskôr.'
         : book.description;
+      updateTranslateButtonVisibility(book);
     } catch (error) {
       console.error('Neočakávaná chyba pri hľadaní detailov v modale:', error);
       modalDescription.textContent = 'Nastala neočakávaná chyba pri hľadaní detailov. Skús znova kliknúť na „Detail“, alebo „Hľadať“ na karte knihy.';
@@ -1111,6 +1247,14 @@ async function handleDetailClick(bookId) {
       modalDescription.style.display = 'block';
     }
   }
+}
+
+// Zobrazí tlačidlo "Preložiť popis" len ak má kniha popis, ktorý vyzerá byť
+// v inom jazyku ako slovenčina/čeština (heuristika podľa diakritiky).
+function updateTranslateButtonVisibility(book) {
+  const looksForeign = book.description && descriptionLooksForeign(book.description)
+    && book.description !== 'Popis pre túto knihu nebol nájdený.';
+  modalTranslateBtn.style.display = looksForeign ? 'inline-flex' : 'none';
 }
 
 function closeModalHandler() {
@@ -1423,10 +1567,58 @@ modalCoverBtn.addEventListener('click', () => {
   customCoverUpload.click();
 });
 
+modalTranslateBtn.addEventListener('click', async () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+
+  modalTranslateBtn.disabled = true;
+  modalTranslateBtn.textContent = '… prekladám';
+
+  const translated = await translateDescription(book);
+  if (translated) {
+    book.description = translated;
+    saveBooks();
+    modalDescription.textContent = translated;
+    filterAndRenderBooks();
+  }
+
+  modalTranslateBtn.disabled = false;
+  modalTranslateBtn.textContent = '🌐 Preložiť popis';
+  updateTranslateButtonVisibility(book);
+});
+
 modalEditBtn.addEventListener('click', enterEditMode);
 modalCancelEditBtn.addEventListener('click', exitEditMode);
 modalSaveBtn.addEventListener('click', saveEditedBook);
 modalRescanBtn.addEventListener('click', rescanFromModal);
+
+modalGeminiSearchBtn.addEventListener('click', async () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+
+  modalGeminiSearchBtn.disabled = true;
+  modalGeminiSearchBtn.textContent = '… hľadám na webe';
+
+  const result = await searchViaGeminiWeb(book);
+  if (result) {
+    if (result.coverUrl) book.coverUrl = result.coverUrl;
+    if (result.description) book.description = result.description;
+    if (result.coverUrl || result.description) {
+      saveBooks();
+      filterAndRenderBooks();
+      if (book.coverUrl) modalCover.src = book.coverUrl;
+      if (book.description) {
+        modalDescription.textContent = book.description;
+        updateTranslateButtonVisibility(book);
+      }
+    } else {
+      errorMessage.textContent = 'Gemini cez webové vyhľadávanie nenašiel pre túto knihu žiadny obal ani popis.';
+    }
+  }
+
+  modalGeminiSearchBtn.disabled = false;
+  modalGeminiSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
+});
 
 customCoverUpload.addEventListener('change', (event) => {
   const file = event.target.files[0];
