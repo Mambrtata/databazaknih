@@ -105,9 +105,13 @@ const imageUpload = document.getElementById('imageUpload'),
   modalCancelEditBtn = document.getElementById('modalCancelEditBtn'),
   modalRescanBtn = document.getElementById('modalRescanBtn'),
   modalGeminiSearchBtn = document.getElementById('modalGeminiSearchBtn'),
+  modalScanIsbnBtn = document.getElementById('modalScanIsbnBtn'),
+  modalIsbn = document.getElementById('modalIsbn'),
+  isbnScanUpload = document.getElementById('isbnScanUpload'),
   editTitleInput = document.getElementById('editTitle'),
   editOriginalTitleInput = document.getElementById('editOriginalTitle'),
   editAuthorInput = document.getElementById('editAuthor'),
+  editIsbnInput = document.getElementById('editIsbn'),
   editGenreInput = document.getElementById('editGenre'),
   exportBtn = document.getElementById('exportBtn'),
   importBtn = document.getElementById('importBtn'),
@@ -509,6 +513,22 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   let coverUrl = null;
   let description = null;
 
+  // ---- 0) Open Library podľa ISBN — ak ho kniha má, je to najpresnejší
+  // a najspoľahlivejší spôsob (jednoznačná identifikácia konkrétneho vydania,
+  // žiadna kontrola zhody autora nie je ani potrebná). Skúša sa pred
+  // fulltextovým vyhľadávaním podľa názvu.
+  const isbn = book && book.isbn ? book.isbn : null;
+  if (isbn && enabled.openLibrary && sources.openLibraryIsbn !== 'found' && sources.openLibraryIsbn !== 'empty') {
+    const olIsbn = await fetchFromOpenLibraryByIsbn(isbn);
+    sources.openLibraryIsbn = olIsbn.coverUrl ? 'found' : 'empty';
+    if (olIsbn.coverUrl) coverUrl = olIsbn.coverUrl;
+    if (olIsbn.description) description = olIsbn.description;
+  }
+
+  if (coverUrl) {
+    return { coverUrl, description: description || 'Popis pre túto knihu nebol nájdený.', networkError: false, sources };
+  }
+
   // ---- 1) Open Library — skúšame ako prvú, nemá denný limit požiadaviek ----
   if (enabled.openLibrary && sources.openLibrary !== 'found' && sources.openLibrary !== 'empty') {
     const ol = await fetchFromOpenLibrary(searchTitle, author);
@@ -533,7 +553,10 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   } else if (!booksAlreadyTried) {
     const booksApiKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
     try {
-      const query = `intitle:${encodeURIComponent(searchTitle)}${author ? '+inauthor:' + encodeURIComponent(author) : ''}`;
+      // Ak máme ISBN, je to presnejší identifikátor než názov/autor.
+      const query = isbn
+        ? `isbn:${encodeURIComponent(isbn)}`
+        : `intitle:${encodeURIComponent(searchTitle)}${author ? '+inauthor:' + encodeURIComponent(author) : ''}`;
       let url = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
       if (booksApiKey) url += `&key=${encodeURIComponent(booksApiKey)}`;
 
@@ -559,10 +582,11 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
       } else if (response.ok) {
         const data = await response.json();
         const bookResult = data.items?.[0]?.volumeInfo;
-        // Overíme, že nájdená kniha skutočne sedí s autorom, ktorého máme v katalógu.
-        // Bez tejto kontroly fulltextové vyhľadávanie podľa všeobecného názvu (napr. "Dedič",
-        // "Goya") ľahko vráti úplne inú knihu od iného autora, len so zhodným/podobným titulom.
-        const matches = bookResult && authorMatches(author, bookResult.authors);
+        // Pri vyhľadávaní podľa ISBN je výsledok jednoznačný, kontrola zhody
+        // autora nie je potrebná. Pri fulltextovom vyhľadávaní podľa názvu ju
+        // potrebujeme — inak by všeobecný názov (napr. "Dedič", "Goya") mohol
+        // vrátiť úplne inú knihu od iného autora, len so zhodným/podobným titulom.
+        const matches = isbn ? true : (bookResult && authorMatches(author, bookResult.authors));
         const foundCover = matches ? (bookResult?.imageLinks?.thumbnail || null) : null;
         sources.googleBooks = foundCover ? 'found' : 'empty';
         if (foundCover) coverUrl = foundCover;
@@ -634,6 +658,40 @@ async function fetchWithTimeout(url, ms) {
 }
 
 let openLibraryRateLimitedUntil = 0;
+
+// Vyhľadanie podľa ISBN je oveľa presnejšie než fulltextové vyhľadávanie podľa
+// názvu/autora — žiadna kontrola zhody autora nie je potrebná, ISBN jednoznačne
+// identifikuje konkrétne vydanie knihy. Používa sa ako prioritný spôsob, keď
+// má kniha vyplnené ISBN.
+async function fetchFromOpenLibraryByIsbn(isbn) {
+  if (!isbn) return { coverUrl: null, description: null };
+  if (Date.now() < openLibraryRateLimitedUntil) {
+    return { coverUrl: null, description: null };
+  }
+  try {
+    const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
+    const res = await fetchWithTimeout(url, 6000);
+
+    if (res.status === 429) {
+      openLibraryRateLimitedUntil = Date.now() + 5 * 60000;
+      return { coverUrl: null, description: null };
+    }
+    if (!res.ok) return { coverUrl: null, description: null };
+
+    const data = await res.json();
+    const book = data['ISBN:' + isbn];
+    if (!book) return { coverUrl: null, description: null };
+
+    const coverUrl = book.cover?.large || book.cover?.medium || null;
+    let description = null;
+    if (typeof book.notes === 'string') description = book.notes;
+    else if (book.excerpts?.[0]?.text) description = book.excerpts[0].text;
+
+    return { coverUrl, description };
+  } catch (error) {
+    return { coverUrl: null, description: null };
+  }
+}
 
 async function fetchFromOpenLibrary(title, author) {
   if (Date.now() < openLibraryRateLimitedUntil) {
@@ -1221,6 +1279,7 @@ async function handleDetailClick(bookId) {
   }
   modalAuthor.textContent = book.author || 'Neznámy autor';
   modalGenre.textContent = book.genre || 'Nezaradené';
+  updateModalIsbnDisplay(book);
 
   bookModal.classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -1290,6 +1349,23 @@ function closeModalHandler() {
 // Ručná úprava knihy v detail-modale
 // ============================================================
 
+// Odstráni medzery, pomlčky a iné oddeľovače z ISBN, nech sa dá spoľahlivo
+// použiť vo vyhľadávacích URL aj porovnávať (ISBN sa bežne zapisuje s rôznou
+// interpunkciou, napr. "978-80-86964-09-6" aj "9788086964096" sú to isté).
+function normalizeIsbn(raw) {
+  if (!raw) return '';
+  return raw.replace(/[^0-9Xx]/g, '').toUpperCase();
+}
+
+function updateModalIsbnDisplay(book) {
+  if (book.isbn) {
+    modalIsbn.textContent = 'ISBN ' + book.isbn;
+    modalIsbn.style.display = 'inline';
+  } else {
+    modalIsbn.style.display = 'none';
+  }
+}
+
 function enterEditMode() {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
@@ -1297,6 +1373,7 @@ function enterEditMode() {
   editTitleInput.value = book.title || '';
   editOriginalTitleInput.value = book.originalTitle || '';
   editAuthorInput.value = book.author || '';
+  editIsbnInput.value = book.isbn || '';
   editGenreInput.innerHTML = GENRES.map(g =>
     `<option value="${escapeHtml(g)}" ${g === book.genre ? 'selected' : ''}>${escapeHtml(g)}</option>`
   ).join('');
@@ -1305,6 +1382,8 @@ function enterEditMode() {
   modalEditMode.style.display = 'block';
   modalEditBtn.style.display = 'none';
   modalRescanBtn.style.display = 'none';
+  modalScanIsbnBtn.style.display = 'none';
+  modalGeminiSearchBtn.style.display = 'none';
   modalCoverBtn.style.display = 'none';
   modalSaveBtn.style.display = 'inline-flex';
   modalCancelEditBtn.style.display = 'inline-flex';
@@ -1315,6 +1394,8 @@ function exitEditMode() {
   modalEditMode.style.display = 'none';
   modalEditBtn.style.display = 'inline-flex';
   modalRescanBtn.style.display = 'inline-flex';
+  modalScanIsbnBtn.style.display = 'inline-flex';
+  modalGeminiSearchBtn.style.display = 'inline-flex';
   modalCoverBtn.style.display = 'inline-flex';
   modalSaveBtn.style.display = 'none';
   modalCancelEditBtn.style.display = 'none';
@@ -1333,18 +1414,21 @@ function saveEditedBook() {
   const titleChanged = newTitle !== book.title;
   const authorChanged = editAuthorInput.value.trim() !== book.author;
   const originalChanged = editOriginalTitleInput.value.trim() !== (book.originalTitle || '');
+  const isbnChanged = editIsbnInput.value.trim() !== (book.isbn || '');
 
   book.title = newTitle;
   book.author = editAuthorInput.value.trim();
   book.originalTitle = editOriginalTitleInput.value.trim();
+  book.isbn = normalizeIsbn(editIsbnInput.value);
   book.genre = editGenreInput.value;
 
-  // Ak sa zmenil názov, autor alebo originálny názov, predošlý obal/popis už nemusí
-  // sedieť — zresetujeme ich, aby sa pri ďalšom otvorení/rescane vyhľadali znova.
-  // Vlastné nahraté obaly (customCover) sa zachovajú aj po úprave textu.
-  if ((titleChanged || authorChanged || originalChanged) && !book.customCover) {
+  // Ak sa zmenil názov, autor, originálny názov alebo ISBN, predošlý obal/popis
+  // už nemusí sedieť — zresetujeme ich, aby sa pri ďalšom otvorení/rescane
+  // vyhľadali znova. Vlastné nahraté obaly (customCover) sa zachovajú.
+  if ((titleChanged || authorChanged || originalChanged || isbnChanged) && !book.customCover) {
     book.coverUrl = null;
     book.description = null;
+    book.sourcesTried = {};
   }
 
   saveBooks(true);
@@ -1361,6 +1445,7 @@ function saveEditedBook() {
   }
   modalAuthor.textContent = book.author || 'Neznámy autor';
   modalGenre.textContent = book.genre || 'Nezaradené';
+  updateModalIsbnDisplay(book);
 
   if (!book.coverUrl) {
     rescanFromModal();
@@ -1491,6 +1576,65 @@ async function analyzeImage(base64ImageData) {
       }
       await new Promise(res => setTimeout(res, Math.pow(2, attempts) * 1000));
     }
+  }
+}
+
+// Rozpozná ISBN z fotky zadnej strany knihy (čiarový kód alebo vytlačené číslo)
+// a priamo ho priradí ku konkrétnej knihe v katalógu (volá sa z detailu knihy).
+async function analyzeIsbnImage(book, base64ImageData) {
+  const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  if (!apiKey) {
+    showError('Pre rozpoznávanie ISBN z fotky najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    return null;
+  }
+
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+  const systemPrompt = "You are an expert at reading ISBN numbers from photos of book covers and barcodes.";
+  const userQuery = "From the provided image, find the ISBN number (it is often printed near a barcode, may be labeled 'ISBN' and is typically 10 or 13 digits, sometimes with hyphens). Respond ONLY with a valid JSON object: {\"isbn\": \"the ISBN digits found, no hyphens or spaces\" or null if none is visible}. Do not include any other text.";
+
+  const payload = {
+    contents: [{
+      parts: [
+        { text: userQuery },
+        { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }
+      ]
+    }],
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    generationConfig: { responseMimeType: "application/json" }
+  };
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      showError('Rozpoznanie ISBN sa nepodarilo: ' + (errBody?.error?.message || ('HTTP ' + response.status)));
+      return null;
+    }
+
+    const result = await response.json();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      showError('Gemini nevrátil žiadnu odpoveď. Skús to znova s jasnejšou fotkou.');
+      return null;
+    }
+
+    const parsed = JSON.parse(text);
+    const isbn = normalizeIsbn(parsed.isbn || '');
+    if (!isbn || (isbn.length !== 10 && isbn.length !== 13)) {
+      showError('Na fotke sa nepodarilo nájsť čitateľné ISBN. Skús odfotiť čiarový kód/ISBN zblízka a v dobrom svetle.');
+      return null;
+    }
+    return isbn;
+  } catch (error) {
+    console.error('Chyba pri rozpoznávaní ISBN:', error);
+    showError('Nepodarilo sa spojiť s Gemini API pre rozpoznanie ISBN. Skontroluj pripojenie.');
+    return null;
   }
 }
 
@@ -1646,6 +1790,55 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
 
   modalGeminiSearchBtn.disabled = false;
   modalGeminiSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
+});
+
+modalScanIsbnBtn.addEventListener('click', () => {
+  if (!currentModalBookId) return;
+  isbnScanUpload.click();
+});
+
+isbnScanUpload.addEventListener('change', (event) => {
+  const file = event.target.files[0];
+  const bookId = currentModalBookId;
+  if (!file || !bookId) return;
+
+  const book = allBooks.find(b => b.id === bookId);
+  if (!book) return;
+
+  modalScanIsbnBtn.disabled = true;
+  modalScanIsbnBtn.textContent = '… čítam ISBN';
+
+  const reader = new FileReader();
+  reader.onloadend = async () => {
+    const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
+    const isbn = await analyzeIsbnImage(book, base64String);
+
+    if (isbn) {
+      book.isbn = isbn;
+      // Nové ISBN — predošlý obal/popis (ak vznikol z menej presného fulltextového
+      // vyhľadávania) môže byť nahradený presnejším výsledkom podľa ISBN.
+      if (!book.customCover) {
+        book.sourcesTried = {};
+      }
+      saveBooks(true);
+      updateModalIsbnDisplay(book);
+      filterAndRenderBooks();
+      statusMessage.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám obal a popis…`;
+      await rescanFromModal();
+      statusMessage.textContent = '';
+    }
+
+    modalScanIsbnBtn.disabled = false;
+    modalScanIsbnBtn.textContent = '📷 Odfotiť ISBN';
+  };
+  reader.onerror = () => {
+    showError('Chyba pri načítavaní súboru.');
+    modalScanIsbnBtn.disabled = false;
+    modalScanIsbnBtn.textContent = '📷 Odfotiť ISBN';
+  };
+  reader.readAsDataURL(file);
+
+  isbnScanUpload.value = '';
 });
 
 customCoverUpload.addEventListener('change', (event) => {
