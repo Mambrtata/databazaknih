@@ -262,6 +262,22 @@
   .close-btn:hover{background:var(--bg-sunk);}
   .close-btn:disabled{opacity:0.5; cursor:default;}
 
+  .review-row{
+    display:flex; align-items:flex-start; gap:12px; padding:10px 12px;
+    border:1px solid var(--line); border-radius:8px; background:var(--card);
+  }
+  .review-row.uncertain{border-color:#D9A441; background:#FBF3E3;}
+  .review-row input[type=checkbox]{margin-top:3px; flex-shrink:0; width:16px; height:16px;}
+  .review-row .review-title{font-weight:600; font-size:14px; margin:0;}
+  .review-row .review-author{font-size:12.5px; color:var(--ink-soft); margin:2px 0 0;}
+  .review-row .review-warning{
+    font-size:11.5px; color:#9A6A14; margin-top:4px; display:flex; align-items:center; gap:5px;
+  }
+  .review-row .review-genre-select{
+    margin-top:6px; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:6px;
+    background:var(--bg); color:var(--ink);
+  }
+
   footer.foot{
     text-align:center; margin-top:56px; padding-top:24px; border-top:1px solid var(--line);
     font-size:12px; color:var(--ink-soft); line-height:1.6;
@@ -319,20 +335,40 @@
     <main class="content">
 
       <div class="panel">
-        <h2><span class="num">01</span>Pridať knihy z fotky</h2>
-        <div class="photo-row">
-          <input type="file" id="imageUpload" accept="image/*" class="hidden" style="display:none;">
-          <label for="imageUpload" class="btn btn-primary" style="cursor:pointer;">📷 Vybrať fotku knižnice</label>
-          <span id="fileName"></span>
+        <h2><span class="num">01</span>Pridať knihu</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:12px;">
+
+          <div style="border:1px solid var(--line); border-radius:10px; padding:16px;">
+            <p style="margin:0 0 4px; font-weight:600; font-size:14.5px;">📖 Odfotiť ISBN</p>
+            <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft);">Jedna kniha — odfoť čiarový kód/ISBN, automaticky sa dohľadajú údaje.</p>
+            <input type="file" id="isbnAddUpload" accept="image/*" capture="environment" style="display:none;">
+            <label for="isbnAddUpload" class="btn btn-outline" style="cursor:pointer; width:100%; justify-content:center;">📷 Odfotiť ISBN</label>
+          </div>
+
+          <div style="border:1px solid var(--line); border-radius:10px; padding:16px;">
+            <p style="margin:0 0 4px; font-weight:600; font-size:14.5px;">📚 Odfotiť policu</p>
+            <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft);">Viac kníh naraz — odfoť chrbty na poličke, vyber si, ktoré pridať.</p>
+            <input type="file" id="shelfAddUpload" accept="image/*" capture="environment" style="display:none;">
+            <label for="shelfAddUpload" class="btn btn-outline" style="cursor:pointer; width:100%; justify-content:center;">📷 Odfotiť policu</label>
+          </div>
+
+          <div style="border:1px solid var(--line); border-radius:10px; padding:16px;">
+            <p style="margin:0 0 4px; font-weight:600; font-size:14.5px;">✏️ Zapísať ručne</p>
+            <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft);">Vyplň údaje sám, bez fotky.</p>
+            <button id="openManualAddBtn" class="btn btn-outline" style="width:100%; justify-content:center;">✏️ Zapísať ručne</button>
+          </div>
+
         </div>
+        <p id="addFlowStatus" style="margin:14px 0 0; font-size:13px; color:var(--ink-soft);"></p>
       </div>
 
-      <div class="panel">
-        <h2><span class="num">02</span>… alebo zapísať ručne</h2>
+      <div class="panel" id="manualAddPanel" style="display:none;">
+        <h2 style="margin-bottom:14px;">✏️ Zapísať knihu ručne</h2>
         <form id="addBookForm" class="add-form">
           <input type="text" id="bookTitle" placeholder="Názov knihy" required>
           <input type="text" id="bookAuthor" placeholder="Autor">
           <input type="text" id="bookOriginalTitle" placeholder="Originálny/EN názov (nepovinné)">
+          <input type="text" id="bookIsbn" placeholder="ISBN (nepovinné)">
           <select id="bookGenre"></select>
           <button type="submit" class="btn btn-outline">Pridať</button>
         </form>
@@ -440,6 +476,22 @@
         <button id="modalTranslateBtn" class="close-btn" style="display:none;">🌐 Preložiť popis</button>
         <button id="modalCoverBtn" class="close-btn">📷 Nahrať obal</button>
         <button id="closeModal" class="close-btn" style="background:var(--ink); color:#fff; border-color:var(--ink);">Zavrieť</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Review modal pre knihy rozpoznané z fotky police -->
+<div id="shelfReviewModal" class="modal-overlay hidden">
+  <div class="modal-card" style="flex-direction:column; max-width:720px;">
+    <div style="padding:28px 30px; overflow-y:auto;">
+      <h2 style="font-size:22px; margin:0 0 6px;">Rozpoznané knihy</h2>
+      <p id="shelfReviewSummary" style="margin:0 0 18px; font-size:13.5px; color:var(--ink-soft);"></p>
+      <div id="shelfReviewList" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto; margin-bottom:18px;"></div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button id="shelfReviewAddBtn" class="close-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">Pridať vybrané</button>
+        <button id="shelfReviewSelectAllBtn" class="close-btn">Vybrať všetky čitateľné</button>
+        <button id="shelfReviewCancelBtn" class="close-btn">Zrušiť</button>
       </div>
     </div>
   </div>
