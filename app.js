@@ -75,6 +75,11 @@ const isbnAddUpload = document.getElementById('isbnAddUpload'),
   shelfReviewAddBtn = document.getElementById('shelfReviewAddBtn'),
   shelfReviewSelectAllBtn = document.getElementById('shelfReviewSelectAllBtn'),
   shelfReviewCancelBtn = document.getElementById('shelfReviewCancelBtn'),
+  importChoiceModal = document.getElementById('importChoiceModal'),
+  importChoiceSummary = document.getElementById('importChoiceSummary'),
+  importMergeBtn = document.getElementById('importMergeBtn'),
+  importReplaceBtn = document.getElementById('importReplaceBtn'),
+  importCancelBtn = document.getElementById('importCancelBtn'),
   bookList = document.getElementById('bookList'),
   loader = document.getElementById('loader'),
   statusMessage = document.getElementById('statusMessage'),
@@ -124,6 +129,7 @@ const isbnAddUpload = document.getElementById('isbnAddUpload'),
   editIsbnInput = document.getElementById('editIsbn'),
   editGenreInput = document.getElementById('editGenre'),
   exportBtn = document.getElementById('exportBtn'),
+  exportCsvBtn = document.getElementById('exportCsvBtn'),
   importBtn = document.getElementById('importBtn'),
   importFileInput = document.getElementById('importFileInput'),
   importStatus = document.getElementById('importStatus');
@@ -266,7 +272,7 @@ function exportCatalog() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    importStatus.textContent = `Stiahnutých ${allBooks.length} kníh.`;
+    importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (JSON, plná záloha).`;
     importStatus.className = 'api-status ok';
   } catch (error) {
     console.error('Chyba pri exporte katalógu:', error);
@@ -274,6 +280,87 @@ function exportCatalog() {
     importStatus.className = 'api-status bad';
   }
 }
+
+// CSV export v tvare, ktorý vie importnúť Goodreads aj LibraryThing (a teda
+// pravdepodobne aj väčšina podobných služieb) — tieto služby si pri zhode ISBN
+// samy dohľadajú vlastné bibliografické dáta, takže CSV tu slúži najmä ako
+// "zoznam ISBN + záložný text", nie ako úplná záloha (tá je v JSON exporte).
+// Obrázky vlastných obalov sa do CSV nedajú vložiť — tie zostávajú len v JSON.
+function csvEscape(value) {
+  const str = (value === null || value === undefined) ? '' : String(value);
+  if (/[",\n]/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function exportCatalogCsv() {
+  try {
+    // Stĺpce zodpovedajú formátu, ktorý LibraryThing aj Goodreads vedia
+    // priamo importovať: TITLE, AUTHOR, ISBN — plus GENRE a ORIGINAL_TITLE
+    // navyše (tie si tieto služby ignorujú, ale neprekážajú pri importe).
+    const header = ['TITLE', 'AUTHOR', 'ISBN', 'GENRE', 'ORIGINAL_TITLE'];
+    const rows = allBooks.map(b => [
+      csvEscape(b.title),
+      csvEscape(b.author),
+      csvEscape(b.isbn || ''),
+      csvEscape(b.genre || ''),
+      csvEscape(b.originalTitle || '')
+    ].join(','));
+
+    // BOM na začiatku, nech sa diakritika správne zobrazí aj v Exceli na Windows.
+    const csvContent = '\uFEFF' + header.join(',') + '\n' + rows.join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `kniznica-${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (CSV, pre Goodreads/LibraryThing — bez obalov, tie sú len v JSON zálohe).`;
+    importStatus.className = 'api-status ok';
+  } catch (error) {
+    console.error('Chyba pri CSV exporte katalógu:', error);
+    importStatus.textContent = 'CSV export sa nepodaril. Skús to znova.';
+    importStatus.className = 'api-status bad';
+  }
+}
+
+// Normalizuje text na porovnanie duplicít — bez diakritiky, malými písmenami,
+// orezané medzery. Rovnaký princíp ako normalizeAuthorName, len bez triedenia slov
+// (na názov/autora chceme presnejšiu zhodu, nie len "obsahuje rovnaké slová").
+function normalizeForDuplicateCheck(text) {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Nájde existujúcu knihu v katalógu, ktorá je pravdepodobne duplicitom danej
+// importovanej knihy. ISBN (ak ho majú obe) je najspoľahlivejší spôsob —
+// jednoznačne identifikuje vydanie. Bez ISBN porovnávame normalizovaný
+// názov + autora.
+function findDuplicateBook(candidate) {
+  if (candidate.isbn) {
+    const isbnMatch = allBooks.find(b => b.isbn && b.isbn === candidate.isbn);
+    if (isbnMatch) return isbnMatch;
+  }
+  const titleKey = normalizeForDuplicateCheck(candidate.title);
+  const authorKey = normalizeForDuplicateCheck(candidate.author);
+  if (!titleKey) return null;
+  return allBooks.find(b =>
+    normalizeForDuplicateCheck(b.title) === titleKey &&
+    normalizeForDuplicateCheck(b.author) === authorKey
+  ) || null;
+}
+
+let pendingImportBooks = null;
 
 function importCatalog(file) {
   const reader = new FileReader();
@@ -301,31 +388,39 @@ function importCatalog(file) {
       return;
     }
 
-    const hasExisting = allBooks.length > 0;
-    const proceed = !hasExisting || confirm(
-      `Import obsahuje ${validBooks.length} kníh. Tvoj aktuálny katalóg má ${allBooks.length} kníh.\n\n` +
-      `OK = nahradiť aktuálny katalóg importovaným (odporúčané pri prenose na nový hosting)\n` +
-      `Zrušiť = nepokračovať`
-    );
-    if (!proceed) return;
-
-    // Doplníme chýbajúce povinné polia a unikátne id, nech sa zídu so zvyškom aplikácie.
-    allBooks = validBooks.map((b, i) => ({
-      id: b.id || ('imported_' + i + '_' + Date.now()),
+    const normalizedImport = validBooks.map(b => ({
       title: b.title.trim(),
       author: (b.author || '').trim(),
       genre: (b.genre || 'Nezaradené').trim(),
       originalTitle: (b.originalTitle || '').trim(),
+      isbn: normalizeIsbn(b.isbn || ''),
       coverUrl: b.coverUrl || null,
       description: b.description || null,
       customCover: !!b.customCover,
+      sourcesTried: b.sourcesTried || {},
       createdAt: b.createdAt || Date.now()
     }));
 
-    saveBooks(true);
-    filterAndRenderBooks();
-    importStatus.textContent = `Naimportovaných ${allBooks.length} kníh.`;
-    importStatus.className = 'api-status ok';
+    if (allBooks.length === 0) {
+      // Prázdny katalóg — niet čo zlučovať, jednoducho naplníme bez pýtania.
+      allBooks = normalizedImport.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
+      saveBooks(true);
+      filterAndRenderBooks();
+      importStatus.textContent = `Naimportovaných ${allBooks.length} kníh.`;
+      importStatus.className = 'api-status ok';
+      return;
+    }
+
+    const duplicateCount = normalizedImport.filter(b => findDuplicateBook(b)).length;
+    pendingImportBooks = normalizedImport;
+
+    importChoiceSummary.textContent = `Import obsahuje ${validBooks.length} kníh (z toho ${duplicateCount} sa zhoduje s knihami, ktoré už máš v katalógu). Tvoj aktuálny katalóg má ${allBooks.length} kníh.`;
+
+    importChoiceModal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      importChoiceModal.style.opacity = '1';
+      importChoiceModal.querySelector('.modal-card').style.transform = 'scale(1)';
+    });
   };
   reader.onerror = () => {
     importStatus.textContent = 'Súbor sa nepodarilo prečítať.';
@@ -333,6 +428,51 @@ function importCatalog(file) {
   };
   reader.readAsText(file);
 }
+
+function closeImportChoiceModal() {
+  importChoiceModal.style.opacity = '0';
+  importChoiceModal.querySelector('.modal-card').style.transform = 'scale(0.97)';
+  setTimeout(() => importChoiceModal.classList.add('hidden'), 200);
+  pendingImportBooks = null;
+}
+
+importCancelBtn.addEventListener('click', () => {
+  importStatus.textContent = 'Import zrušený.';
+  importStatus.className = 'api-status';
+  closeImportChoiceModal();
+});
+importChoiceModal.addEventListener('click', (e) => {
+  if (e.target === importChoiceModal) closeImportChoiceModal();
+});
+
+importReplaceBtn.addEventListener('click', () => {
+  if (!pendingImportBooks) return;
+  allBooks = pendingImportBooks.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
+  saveBooks(true);
+  filterAndRenderBooks();
+  importStatus.textContent = `Katalóg nahradený — ${allBooks.length} kníh.`;
+  importStatus.className = 'api-status ok';
+  closeImportChoiceModal();
+});
+
+importMergeBtn.addEventListener('click', () => {
+  if (!pendingImportBooks) return;
+  let addedCount = 0;
+  let skippedCount = 0;
+  pendingImportBooks.forEach((b, i) => {
+    if (findDuplicateBook(b)) {
+      skippedCount++;
+      return;
+    }
+    allBooks.push({ id: 'imported_' + i + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), ...b });
+    addedCount++;
+  });
+  saveBooks(true);
+  filterAndRenderBooks();
+  importStatus.textContent = `Pridaných ${addedCount} nových kníh, ${skippedCount} duplicít preskočených.`;
+  importStatus.className = 'api-status ok';
+  closeImportChoiceModal();
+});
 
 function saveBooks(immediate = false) {
   // Lokálnu kópiu ukladáme hneď a synchrónne — UI nesmie čakať na sieť.
@@ -2126,6 +2266,7 @@ stopFetchBtn.addEventListener('click', () => {
 });
 
 exportBtn.addEventListener('click', exportCatalog);
+exportCsvBtn.addEventListener('click', exportCatalogCsv);
 
 importBtn.addEventListener('click', () => {
   importFileInput.click();
