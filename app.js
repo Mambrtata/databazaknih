@@ -3343,7 +3343,7 @@ Respond with the prompt only, no explanation.`;
 
     // Krok 2: Imagen 3 vygeneruje obal podľa detailného promptu
     const imagenRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
