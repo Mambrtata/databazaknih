@@ -185,6 +185,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   loader = document.getElementById('loader'),
   statusMessage = document.getElementById('statusMessage'),
   errorMessage = document.getElementById('errorMessage'),
+  modalErrorMessage = document.getElementById('modalErrorMessage'),
   emptyState = document.getElementById('emptyState'),
   searchInput = document.getElementById('searchInput'),
   filterLoanedBtn = document.getElementById('filterLoanedBtn'),
@@ -239,6 +240,21 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   missingMetaInfo = document.getElementById('missingMetaInfo'),
   customCoverUpload = document.getElementById('customCoverUpload'),
   modalCoverBtn = document.getElementById('modalCoverBtn'),
+  modalCoverPickBtn = document.getElementById('modalCoverPickBtn'),
+  coverGalleryModal = document.getElementById('coverGalleryModal'),
+  coverGalleryGrid = document.getElementById('coverGalleryGrid'),
+  coverGalleryStatus = document.getElementById('coverGalleryStatus'),
+  coverGalleryCloseBtn = document.getElementById('coverGalleryCloseBtn'),
+  coverGalleryGenerateBtn = document.getElementById('coverGalleryGenerateBtn'),
+  coverGalleryWebSearchBtn = document.getElementById('coverGalleryWebSearchBtn'),
+  coverGallerySearchDbBtn = document.getElementById('coverGallerySearchDbBtn'),
+  coverGalleryUploadBtn = document.getElementById('coverGalleryUploadBtn'),
+  coverGalleryRemoveBtn = document.getElementById('coverGalleryRemoveBtn'),
+  coverGalleryUrlBox = document.getElementById('coverGalleryUrlBox'),
+  coverGalleryUrlInput = document.getElementById('coverGalleryUrlInput'),
+  coverGalleryUrlConfirm = document.getElementById('coverGalleryUrlConfirm'),
+  coverGalleryUrlCancel = document.getElementById('coverGalleryUrlCancel'),
+  coverGalleryPasteBtn = document.getElementById('coverGalleryPasteBtn'),
   modalTranslateBtn = document.getElementById('modalTranslateBtn'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
@@ -251,6 +267,8 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalLoanName = document.getElementById('modalLoanName'),
   modalLoanDate = document.getElementById('modalLoanDate'),
   modalLoanBtn = document.getElementById('modalLoanBtn'),
+  modalLoanIconBtn = document.getElementById('modalLoanIconBtn'),
+  modalLoanIconLabel = document.getElementById('modalLoanIconLabel'),
   modalReturnBtn = document.getElementById('modalReturnBtn'),
   modalWhatsAppBtn = document.getElementById('modalWhatsAppBtn'),
   modalLoanForm = document.getElementById('modalLoanForm'),
@@ -265,6 +283,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalMoreMenu = document.getElementById('modalMoreMenu'),
   modalRescanBtn = document.getElementById('modalRescanBtn'),
   modalGeminiSearchBtn = document.getElementById('modalGeminiSearchBtn'),
+  modalAiBtn = document.getElementById('modalAiBtn'),
   modalScanIsbnBtn = document.getElementById('modalScanIsbnBtn'),
   modalIsbn = document.getElementById('modalIsbn'),
   modalMeta = document.getElementById('modalMeta'),
@@ -2368,6 +2387,7 @@ function enterEditMode() {
   modalEditMode.style.display = 'block';
   modalPrimaryActions.style.display = 'none';
   modalEditActions.style.display = 'flex';
+  modalCoverPickBtn.style.display = 'flex';
   closeMoreMenu();
 }
 
@@ -2376,6 +2396,7 @@ function exitEditMode() {
   modalEditMode.style.display = 'none';
   modalPrimaryActions.style.display = 'flex';
   modalEditActions.style.display = 'none';
+  modalCoverPickBtn.style.display = 'none';
 }
 
 async function saveEditedBook() {
@@ -3125,10 +3146,349 @@ async function rescanBook(bookId, buttonEl) {
 }
 
 modalCoverBtn.addEventListener('click', () => {
+  openCoverGallery();
+});
+
+// ============================================================
+// Galéria obalov — načíta obaly zo všetkých zdrojov naraz,
+// umožní vybrať jeden alebo vygenerovať AI obal cez Gemini.
+// ============================================================
+
+// Zoznam obalov nájdených pre aktuálnu knihu — každý záznam:
+// { url, source, generated } kde generated = true pre AI obaly
+let galleryCovers = [];
+
+function openCoverGallery() {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  // Začneme s aktuálnym obalom ak existuje
+  galleryCovers = book.coverUrl ? [{ url: book.coverUrl, source: 'Aktuálny', generated: false }] : [];
+  coverGalleryGrid.innerHTML = '';
+  coverGalleryStatus.textContent = galleryCovers.length > 0
+    ? 'Aktuálny obal. Klikni pre potvrdenie alebo hľadaj ďalšie.'
+    : 'Žiadny obal. Hľadaj v databázach alebo generuj AI obal.';
+  coverGalleryModal.style.display = 'flex';
+  coverGalleryGenerateBtn.disabled = false;
+  coverGalleryGenerateBtn.textContent = '✨ Generovať AI obal';
+  coverGalleryUrlBox.style.display = 'none';
+  renderGalleryCovers();
+}
+
+function renderGalleryCovers() {
+  coverGalleryGrid.innerHTML = '';
+  if (galleryCovers.length === 0) {
+    coverGalleryGrid.innerHTML = '<p style="color:var(--ink-soft); font-size:13px; grid-column:1/-1;">Zatiaľ žiadne obaly.</p>';
+    return;
+  }
+  galleryCovers.forEach((item, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'cover-gallery-item';
+    const book = allBooks.find(b => b.id === currentModalBookId);
+    if (book && item.url === book.coverUrl) wrap.classList.add('selected');
+
+    wrap.innerHTML = `
+      <img src="${escapeHtml(item.url)}" loading="lazy" onerror="this.closest('.cover-gallery-item').style.display='none'">
+      <span class="cover-src">${escapeHtml(item.source)}</span>
+      <button class="cover-delete" data-idx="${idx}" title="Odstrániť">×</button>
+    `;
+    wrap.addEventListener('click', (e) => {
+      if (e.target.classList.contains('cover-delete')) return;
+      selectGalleryCover(item.url);
+    });
+    wrap.querySelector('.cover-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      galleryCovers.splice(idx, 1);
+      // Ak sme zmazali aktuálny obal, vyčistíme ho z knihy
+      const book = allBooks.find(b => b.id === currentModalBookId);
+      if (book && book.coverUrl === item.url) {
+        book.coverUrl = null;
+        modalCover.removeAttribute('src');
+        modalCover.style.background = 'var(--paper-deep)';
+        saveBooks(true);
+        filterAndRenderBooks();
+      }
+      renderGalleryCovers();
+    });
+    coverGalleryGrid.appendChild(wrap);
+  });
+}
+
+function selectGalleryCover(url) {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  book.coverUrl = url;
+  modalCover.src = url;
+  saveBooks(true);
+  filterAndRenderBooks();
+  renderGalleryCovers();
+  showToast('Obal uložený.', 'success', 2000);
+}
+
+async function fetchAllGalleryCovers(book) {
+  const sources = [];
+
+  // Open Library podľa ISBN
+  if (book.isbn) {
+    try {
+      const sizes = ['L', 'M'];
+      for (const size of sizes) {
+        const url = `https://covers.openlibrary.org/b/isbn/${book.isbn}-${size}.jpg`;
+        sources.push({ url, source: `Open Library (${size})` });
+      }
+    } catch(e) {}
+  }
+
+  // Open Library podľa názvu
+  try {
+    const olData = await fetchFromOpenLibraryRaw(book.title, book.author, null);
+    if (olData.coverUrl && !sources.find(s => s.url === olData.coverUrl)) {
+      sources.push({ url: olData.coverUrl, source: 'Open Library (názov)' });
+    }
+  } catch(e) {}
+
+  // Google Books
+  try {
+    const gbKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
+    const q = encodeURIComponent(`${book.title} ${book.author || ''}`);
+    const gbUrl = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=5${gbKey ? '&key=' + gbKey : ''}`;
+    const res = await fetchWithTimeout(gbUrl, 5000);
+    if (res.ok) {
+      const data = await res.json();
+      (data.items || []).forEach(item => {
+        const img = item.volumeInfo?.imageLinks?.extraLarge
+          || item.volumeInfo?.imageLinks?.large
+          || item.volumeInfo?.imageLinks?.thumbnail;
+        if (img) {
+          const hiRes = img.replace('http://', 'https://').replace('&zoom=1', '&zoom=0');
+          if (!sources.find(s => s.url === hiRes)) {
+            sources.push({ url: hiRes, source: 'Google Books' });
+          }
+        }
+      });
+    }
+  } catch(e) {}
+
+  // Wikidata
+  try {
+    const wdData = await fetchCoverFromWikidata(book.title, book.author);
+    if (wdData && !sources.find(s => s.url === wdData)) {
+      sources.push({ url: wdData, source: 'Wikidata' });
+    }
+  } catch(e) {}
+
+  // Pridáme nájdené zdroje (neprepisujeme "Aktuálny" ak už existuje)
+  sources.forEach(s => {
+    if (!galleryCovers.find(g => g.url === s.url)) {
+      galleryCovers.push({ ...s, generated: false });
+    }
+  });
+
+  coverGalleryStatus.textContent = galleryCovers.length > 0
+    ? `Nájdených ${galleryCovers.length} obalov. Klikni na obal pre výber.`
+    : 'Žiadne obaly nenájdené v databázach. Skús vygenerovať AI obal.';
+  renderGalleryCovers();
+}
+
+async function generateAiCover(book) {
+  const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  if (!apiKey) {
+    showToast('Pre generovanie AI obalu vlož Gemini API kľúč v nastaveniach.', 'error', 4000);
+    return;
+  }
+
+  coverGalleryGenerateBtn.disabled = true;
+  coverGalleryGenerateBtn.textContent = '⏳ Analyzujem knihu…';
+  coverGalleryStatus.textContent = 'Gemini analyzuje knihu a pripravuje obal…';
+
+  try {
+    // Krok 1: Gemini Flash zistí vizuálny kontext knihy a navrhne detailný
+    // obrazový prompt pre Imagen — lepšie ako posielať holý názov/žáner.
+    const contextPrompt = `You are an expert book cover art director. Based on the following book information, write a detailed visual prompt for an AI image generator to create an authentic, period-appropriate book cover.
+
+Book: "${book.title}"
+Author: ${book.author || 'unknown'}
+Genre: ${book.genre || 'unknown'}
+Year: ${book.publishYear || 'unknown'}
+Description: ${book.description ? book.description.slice(0, 400) : 'not available'}
+
+Write ONLY the image generation prompt (2-4 sentences). Include:
+- Start with: "Book cover for '[book title]' by [author],"
+- Visual style appropriate to the era and genre (e.g. 1960s Soviet realism, Art Nouveau, pulp fiction, etc.)
+- Key visual elements, mood, color palette
+- Composition style (close-up portrait, landscape, abstract, etc.)
+- End with: "Professional book cover illustration, no text, no letters, no title on the image."
+
+Respond with the prompt only, no explanation.`;
+
+    const contextRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: contextPrompt }] }],
+          generationConfig: { maxOutputTokens: 300, temperature: 0.7 }
+        })
+      }
+    );
+
+    if (!contextRes.ok) throw new Error(`Analýza zlyhala: HTTP ${contextRes.status}`);
+    const contextData = await contextRes.json();
+    const imagePrompt = contextData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!imagePrompt) throw new Error('Gemini nevygeneroval prompt pre obal.');
+
+    coverGalleryGenerateBtn.textContent = '⏳ Generujem obal…';
+    coverGalleryStatus.textContent = `Generujem obal: "${imagePrompt.slice(0, 80)}…"`;
+
+    // Krok 2: Imagen 3 vygeneruje obal podľa detailného promptu
+    const imagenRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: imagePrompt }],
+          parameters: { sampleCount: 2, aspectRatio: '2:3' }
+        })
+      }
+    );
+
+    if (!imagenRes.ok) {
+      const err = await imagenRes.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `Imagen zlyhal: HTTP ${imagenRes.status}`);
+    }
+
+    const imagenData = await imagenRes.json();
+    const predictions = imagenData.predictions || [];
+
+    if (predictions.length === 0) {
+      coverGalleryStatus.textContent = 'Imagen negeneroval žiadny obal. Skús znova.';
+      return;
+    }
+
+    predictions.forEach((p, i) => {
+      if (p.bytesBase64Encoded) {
+        const url = `data:image/png;base64,${p.bytesBase64Encoded}`;
+        galleryCovers.push({ url, source: `AI obal ${i + 1}`, generated: true });
+      }
+    });
+
+    coverGalleryStatus.textContent = `Vygenerované ${predictions.length} AI obaly. Klikni pre výber.`;
+    renderGalleryCovers();
+  } catch (err) {
+    coverGalleryStatus.textContent = `Chyba: ${err.message}`;
+    showToast('Generovanie AI obalu zlyhalo: ' + err.message, 'error', 5000);
+  } finally {
+    coverGalleryGenerateBtn.disabled = false;
+    coverGalleryGenerateBtn.textContent = '✨ Generovať AI obal';
+  }
+}
+
+modalCoverPickBtn.addEventListener('click', openCoverGallery);
+
+// Tlačidlo AI v riadku ikon — otvorí galériu obalov priamo (bez edit módu)
+modalAiBtn.addEventListener('click', openCoverGallery);
+
+coverGalleryCloseBtn.addEventListener('click', () => {
+  coverGalleryModal.style.display = 'none';
+});
+
+coverGalleryModal.addEventListener('click', (e) => {
+  if (e.target === coverGalleryModal) coverGalleryModal.style.display = 'none';
+});
+
+coverGalleryUploadBtn.addEventListener('click', () => {
   if (!currentModalBookId) return;
   customCoverUpload.dataset.targetId = currentModalBookId;
   customCoverUpload.click();
 });
+
+coverGallerySearchDbBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  coverGallerySearchDbBtn.disabled = true;
+  coverGallerySearchDbBtn.textContent = '⏳ Hľadám…';
+  coverGalleryStatus.textContent = 'Hľadám v Open Library, Google Books, Wikidata…';
+  fetchAllGalleryCovers(book).then(() => {
+    coverGallerySearchDbBtn.disabled = false;
+    coverGallerySearchDbBtn.textContent = '🔍 Hľadať v databázach';
+  });
+});
+
+coverGalleryPasteBtn.addEventListener('click', () => {
+  coverGalleryUrlBox.style.display = 'block';
+  coverGalleryUrlInput.value = '';
+  coverGalleryUrlInput.focus();
+});
+
+// Paste URL — zobrazí input pole
+coverGalleryUrlBox.addEventListener('click', () => {}); // prevent bubble
+document.addEventListener('paste', (e) => {
+  if (coverGalleryModal.style.display !== 'flex') return;
+  const text = e.clipboardData?.getData('text')?.trim();
+  if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+    coverGalleryUrlInput.value = text;
+    coverGalleryUrlBox.style.display = 'block';
+  }
+});
+
+// Alternatívne: zobrazí URL box pri pravom kliku / tlačidle (pridáme URL ikonu)
+coverGalleryUrlConfirm.addEventListener('click', () => {
+  const url = coverGalleryUrlInput.value.trim();
+  if (!url) return;
+  if (!galleryCovers.find(g => g.url === url)) {
+    galleryCovers.push({ url, source: 'Vlastná URL', generated: false });
+    renderGalleryCovers();
+  }
+  selectGalleryCover(url);
+  coverGalleryUrlBox.style.display = 'none';
+});
+
+coverGalleryUrlCancel.addEventListener('click', () => {
+  coverGalleryUrlBox.style.display = 'none';
+});
+
+
+coverGalleryGenerateBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (book) generateAiCover(book);
+});
+
+coverGalleryWebSearchBtn.addEventListener('click', async () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  coverGalleryWebSearchBtn.disabled = true;
+  coverGalleryWebSearchBtn.textContent = '⏳ Hľadám…';
+  coverGalleryStatus.textContent = 'Gemini hľadá obal na webe…';
+  const result = await searchViaGeminiWeb(book);
+  if (result?.coverImageUrl) {
+    galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini web', generated: false });
+    renderGalleryCovers();
+    coverGalleryStatus.textContent = 'Gemini našiel obal. Klikni pre výber.';
+  } else if (result?.pageUrl) {
+    coverGalleryStatus.textContent = `Priama URL nenájdená. Pozri stránku: ${result.pageUrl}`;
+  } else {
+    coverGalleryStatus.textContent = 'Gemini nenašiel obal na webe.';
+  }
+  coverGalleryWebSearchBtn.disabled = false;
+  coverGalleryWebSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
+});
+
+coverGalleryRemoveBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  book.coverUrl = null;
+  modalCover.removeAttribute('src');
+  modalCover.style.background = 'var(--paper-deep)';
+  saveBooks(true);
+  filterAndRenderBooks();
+  galleryCovers = galleryCovers.filter(g => g.source !== 'Aktuálny');
+  renderGalleryCovers();
+  showToast('Obal odstránený.', 'success', 2000);
+});
+
+
 
 modalTranslateBtn.addEventListener('click', async () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
@@ -3163,11 +3523,19 @@ function updateReadButton(book) {
 function updateLoanSection(book) {
   if (!modalLoanSection) return;
   const loaned = !!book.loanedTo;
+  // Sekcia je viditeľná len ak je kniha požičaná alebo je otvorený formulár
+  modalLoanSection.style.display = loaned ? 'block' : 'none';
   modalLoanInfo.style.display = loaned ? 'block' : 'none';
   modalLoanForm.style.display = 'none';
-  modalLoanBtn.style.display = loaned ? 'none' : 'inline-flex';
   modalReturnBtn.style.display = loaned ? 'inline-flex' : 'none';
   modalWhatsAppBtn.style.display = loaned ? 'inline-flex' : 'none';
+  // Ikona v riadku — zafarbíme ak je požičaná
+  if (modalLoanIconBtn) {
+    modalLoanIconBtn.style.color = loaned ? '#E8A020' : '';
+    modalLoanIconBtn.style.borderColor = loaned ? '#E8A020' : '';
+    modalLoanIconBtn.style.background = loaned ? '#FDF6E3' : '';
+    modalLoanIconLabel.textContent = loaned ? '📤 ' + book.loanedTo.split(' ')[0] : 'Požičané';
+  }
   if (loaned) {
     modalLoanName.textContent = book.loanedTo;
     if (book.loanedAt) {
@@ -3179,16 +3547,28 @@ function updateLoanSection(book) {
   }
 }
 
-modalLoanBtn.addEventListener('click', () => {
-  modalLoanForm.style.display = 'block';
-  modalLoanBtn.style.display = 'none';
-  modalLoanNameInput.value = '';
-  modalLoanNameInput.focus();
+// Klik na ikonu Požičané — ak nie je požičaná: zobraz formulár,
+// ak je požičaná: zobraz/skry panel s detailmi
+modalLoanIconBtn.addEventListener('click', () => {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+  if (book.loanedTo) {
+    // Prepni viditeľnosť sekcie
+    modalLoanSection.style.display =
+      modalLoanSection.style.display === 'none' ? 'block' : 'none';
+  } else {
+    // Otvor formulár
+    modalLoanSection.style.display = 'block';
+    modalLoanForm.style.display = 'block';
+    modalLoanNameInput.value = '';
+    modalLoanNameInput.focus();
+  }
 });
 
 modalLoanCancelBtn.addEventListener('click', () => {
   modalLoanForm.style.display = 'none';
-  modalLoanBtn.style.display = 'inline-flex';
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (book && !book.loanedTo) modalLoanSection.style.display = 'none';
 });
 
 modalLoanConfirmBtn.addEventListener('click', () => {

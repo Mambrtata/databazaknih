@@ -409,34 +409,67 @@
 
   /* ===== Modal ===== */
   .modal-overlay{
-    position:fixed; inset:0; background:rgba(28,27,25,0.45); display:flex;
+    position:fixed; inset:0; background:rgba(28,27,25,0.55); display:flex;
     align-items:center; justify-content:center; padding:18px; z-index:50;
     opacity:0; transition:opacity .2s ease;
   }
   .modal-overlay.hidden{display:none;}
   .modal-card{
-    background:var(--card); border-radius:16px; width:100%; max-width:680px; max-height:88vh;
-    display:flex; overflow:auto; box-shadow:0 30px 60px -20px rgba(0,0,0,0.25);
+    background:var(--card); border-radius:16px; width:100%; max-width:740px; max-height:90vh;
+    display:flex; overflow:hidden; box-shadow:0 30px 60px -20px rgba(0,0,0,0.3);
     transform:scale(0.97); transition:transform .2s ease;
   }
-  @media (max-width:600px){.modal-card{flex-direction:column;}}
-  .modal-cover{width:38%; min-width:160px; object-fit:cover; flex-shrink:0; background:var(--bg-sunk);}
-  @media (max-width:600px){.modal-cover{width:100%; height:240px;}}
-  .modal-info{padding:30px 32px; display:flex; flex-direction:column; flex:1; overflow-y:auto;}
-  .modal-info h2{font-size:24px; margin:0 0 6px; color:var(--ink); font-weight:600;}
-  .modal-info h3{font-size:14px; font-weight:400; color:var(--ink-soft); margin:0 0 16px;}
-  .modal-genre-tag{
-    display:inline-flex; align-items:center; gap:6px; font-size:11.5px;
-    color:var(--accent); background:var(--accent-soft); padding:4px 11px; border-radius:20px;
-    margin-bottom:18px; width:fit-content; font-weight:500;
-  }
-  .modal-desc{font-size:14.5px; line-height:1.65; color:var(--ink-mid);}
-  .modal-loader{width:24px; height:24px; border-radius:50%; margin:10px 0; border:2px solid var(--line); border-top-color:var(--accent); animation:spin .8s linear infinite;}
+  @media (max-width:600px){.modal-card{flex-direction:column; max-height:96vh; overflow-y:auto;}}
 
-  .edit-label{display:block; font-size:11.5px; color:var(--ink-soft); margin:0 0 4px; text-transform:uppercase; letter-spacing:0.05em;}
+  /* Obal — väčší, zaberá celú výšku */
+  .modal-cover-wrap{position:relative; width:34%; min-width:180px; flex-shrink:0; background:var(--bg-sunk);}
+  .modal-cover{width:100%; height:100%; object-fit:cover; display:block;}
+  @media (max-width:600px){.modal-cover-wrap{width:100%; height:260px;}}
+  .modal-cover-pick-btn{
+    position:absolute; inset:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.45); border:none; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#fff; opacity:0; transition:opacity .15s;
+  }
+  .modal-cover-wrap:hover .modal-cover-pick-btn{opacity:1;}
+
+  /* Galéria obalov */
+  .cover-gallery-item{
+    position:relative; aspect-ratio:2/3; border-radius:8px; overflow:hidden;
+    cursor:pointer; border:2px solid transparent; transition:border-color .15s;
+    background:var(--bg-sunk);
+  }
+  .cover-gallery-item:hover{border-color:var(--accent);}
+  .cover-gallery-item.selected{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent);}
+  .cover-gallery-item img{width:100%; height:100%; object-fit:cover; display:block;}
+  .cover-gallery-item .cover-src{
+    position:absolute; bottom:0; left:0; right:0; padding:3px 5px;
+    background:rgba(0,0,0,0.5); color:#fff; font-size:9px; text-align:center;
+  }
+  .cover-gallery-item .cover-delete{
+    position:absolute; top:4px; right:4px; width:20px; height:20px;
+    background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%;
+    cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;
+  }
+  .cover-gallery-item .cover-delete:hover{background:var(--danger);}
+
+  /* Info panel */
+  .modal-info{padding:28px 30px; display:flex; flex-direction:column; flex:1; overflow-y:auto; min-height:0;}
+  .modal-info h2{font-size:22px; margin:0 0 4px; color:var(--ink); font-weight:700; font-family:'Fraunces',serif; line-height:1.2;}
+  .modal-meta-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:6px 0 12px; font-size:13px; color:var(--ink-soft);}
+  .modal-meta-row .sep{opacity:0.35;}
+  .modal-genre-tag{
+    display:inline-flex; align-items:center; font-size:11.5px;
+    color:var(--accent); background:var(--accent-soft); padding:3px 10px; border-radius:20px;
+    font-weight:500;
+  }
+  .modal-desc{font-size:13.5px; line-height:1.7; color:var(--ink-mid); margin:0; flex-grow:1;}
+  .modal-loader{width:22px; height:22px; border-radius:50%; margin:10px 0; border:2px solid var(--line); border-top-color:var(--accent); animation:spin .8s linear infinite;}
+
+  .edit-label{display:block; font-size:11px; color:var(--ink-soft); margin:0 0 3px; text-transform:uppercase; letter-spacing:0.05em;}
   .edit-input{
-    width:100%; padding:9px 11px; margin-bottom:14px; border:1px solid var(--line);
-    border-radius:8px; font-size:14px; background:var(--card); color:var(--ink);
+    width:100%; padding:8px 11px; margin-bottom:12px; border:1px solid var(--line);
+    border-radius:8px; font-size:13.5px; background:var(--card); color:var(--ink);
     font-family:'Inter',sans-serif;
   }
   .edit-input:focus{border-color:var(--accent); outline:none;}
@@ -721,46 +754,54 @@
 <!-- Modal -->
 <div id="bookModal" class="modal-overlay hidden">
   <div class="modal-card">
-    <img id="modalCover" class="modal-cover" alt="">
+    <div id="modalCoverWrap" class="modal-cover-wrap">
+      <img id="modalCover" class="modal-cover" alt="">
+      <button id="modalCoverPickBtn" class="modal-cover-pick-btn" style="display:none;" title="Vybrať obal">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span style="font-size:10px; font-weight:600; margin-top:3px;">Obal</span>
+      </button>
+    </div>
     <div class="modal-info">
       <div style="flex-grow:1;">
 
         <!-- Zobrazovací režim -->
         <div id="modalViewMode">
           <h2 id="modalTitle"></h2>
-          <p id="modalOriginalTitle" style="font-size:13px; color:var(--ink-soft); margin:0 0 4px; font-style:italic; display:none;"></p>
-          <h3 id="modalAuthor"></h3>
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
-            <span class="modal-genre-tag" id="modalGenre" style="margin-bottom:0;"></span>
-            <span id="modalIsbn" class="mono" style="font-size:12px; color:var(--ink-soft); display:none;"></span>
-            <span id="modalMeta" class="mono" style="font-size:12px; color:var(--ink-soft); display:none;"></span>
+          <p id="modalOriginalTitle" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 2px; font-style:italic; display:none;"></p>
+          <p id="modalAuthor" style="font-size:14px; color:var(--ink-soft); margin:0 0 10px; font-weight:400;"></p>
+          <div class="modal-meta-row">
+            <span class="modal-genre-tag" id="modalGenre"></span>
+            <span class="sep">·</span>
+            <span id="modalMeta" class="mono" style="font-size:12px; display:none;"></span>
+            <span id="modalIsbn" class="mono" style="font-size:12px; display:none;"></span>
           </div>
           <div id="modalDescriptionContainer">
             <div id="modalLoader" class="modal-loader" style="display:none;"></div>
             <p class="modal-desc" id="modalDescription"></p>
           </div>
+          <p id="modalErrorMessage" style="font-size:12.5px; color:var(--danger); margin:8px 0 0; line-height:1.5;"></p>
 
-          <!-- Požičanie knihy -->
-          <div id="modalLoanSection" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
-            <div id="modalLoanInfo" style="display:none; font-size:13px; color:var(--ink-soft); margin-bottom:8px;">
-              📖 Požičané: <strong id="modalLoanName"></strong> <span id="modalLoanDate" style="color:var(--ink-soft);"></span>
+          <!-- Požičanie — zobrazí sa len ak je kniha požičaná -->
+          <div id="modalLoanSection" style="display:none; margin-top:12px; padding:10px 12px; background:var(--bg-sunk); border-radius:8px;">
+            <div id="modalLoanInfo" style="font-size:13px; color:var(--ink-soft); margin-bottom:8px;">
+              📤 Požičané: <strong id="modalLoanName"></strong> <span id="modalLoanDate"></span>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-              <button id="modalLoanBtn" class="btn" style="font-size:12.5px; padding:6px 12px;">📤 Požičané</button>
-              <button id="modalReturnBtn" class="btn" style="font-size:12.5px; padding:6px 12px; display:none;">↩ Vrátená</button>
-              <button id="modalWhatsAppBtn" style="display:none; background:none; border:none; cursor:pointer; font-size:20px; padding:4px;" title="Pripomenúť cez WhatsApp">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              <button id="modalReturnBtn" class="btn" style="font-size:12px; padding:5px 10px;">↩ Vrátená</button>
+              <button id="modalWhatsAppBtn" style="background:none; border:none; cursor:pointer; padding:4px; display:flex; align-items:center; gap:5px; font-size:12px; color:#25D366;" title="Pripomenúť cez WhatsApp">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                WhatsApp
               </button>
             </div>
-            <!-- Formulár na zadanie mena -->
-            <div id="modalLoanForm" style="display:none; margin-top:10px; display:none;">
-              <input type="text" id="modalLoanNameInput" placeholder="Meno kamaráta…" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
+            <div id="modalLoanForm" style="display:none; margin-top:10px;">
+              <input type="text" id="modalLoanNameInput" placeholder="Meno kamaráta…" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px; box-sizing:border-box;">
               <div style="display:flex; gap:8px;">
-                <button id="modalLoanConfirmBtn" class="btn btn-primary" style="font-size:12.5px; padding:6px 14px;">Uložiť</button>
-                <button id="modalLoanCancelBtn" class="btn" style="font-size:12.5px; padding:6px 12px;">Zrušiť</button>
+                <button id="modalLoanConfirmBtn" class="btn btn-primary" style="font-size:12px; padding:5px 12px;">Uložiť</button>
+                <button id="modalLoanCancelBtn" class="btn" style="font-size:12px; padding:5px 10px;">Zrušiť</button>
               </div>
             </div>
           </div>
+          <button id="modalLoanBtn" style="display:none;"></button>
         </div>
 
         <!-- Editovací režim -->
@@ -806,6 +847,13 @@
           </span>
         </button>
 
+        <button id="modalLoanIconBtn" class="modal-icon-btn" title="Požičané">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span class="modal-icon-label" id="modalLoanIconLabel">Požičané</span>
+          </span>
+        </button>
+
         <button id="modalRescanBtn" class="modal-icon-btn" data-i18n-title="rescanBtn" title="Hľadať znova">
           <span class="modal-icon-wrap">
             <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -820,12 +868,15 @@
           </span>
         </button>
 
-        <button id="modalGeminiSearchBtn" class="modal-icon-btn" data-i18n-title="geminiSearchBtn" title="Hľadať cez Gemini (web)">
+        <button id="modalAiBtn" class="modal-icon-btn" title="Galéria obalov a AI generovanie">
           <span class="modal-icon-wrap">
             <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
             <span class="modal-icon-label">AI</span>
           </span>
         </button>
+
+        <!-- zachované skryté pre JS kompatibilitu -->
+        <button id="modalGeminiSearchBtn" style="display:none;"></button>
 
         <button id="modalTranslateBtn" class="modal-icon-btn" data-i18n-title="translateBtn" title="Preložiť popis" style="display:none;">
           <span class="modal-icon-wrap">
@@ -849,10 +900,25 @@
       <!-- Skrytý dropdown pre JS kompatibilitu (closeMoreMenu, toggleMoreMenu) -->
 
       <!-- Akcie editovacieho režimu — zobrazia sa len počas úpravy -->
-      <div id="modalEditActions" style="display:none; gap:8px; margin-top:18px; flex-wrap:wrap;">
-        <button id="modalSaveBtn" data-i18n="saveChangesBtn" class="close-btn close-btn-sm" style="background:var(--accent); color:#fff; border-color:var(--accent);">Uložiť zmeny</button>
-        <button id="modalCoverBtn" data-i18n="uploadCoverBtn" class="close-btn close-btn-sm">📷 Nahrať obal</button>
-        <button id="modalCancelEditBtn" data-i18n="cancelBtn" class="close-btn close-btn-sm">Zrušiť</button>
+      <div id="modalEditActions" style="display:none; gap:6px; margin-top:18px; align-items:center; flex-wrap:wrap;">
+        <button id="modalSaveBtn" class="modal-icon-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);" title="Uložiť zmeny">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <span class="modal-icon-label">Uložiť</span>
+          </span>
+        </button>
+        <button id="modalCoverBtn" class="modal-icon-btn" title="Zmeniť obal">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span class="modal-icon-label">Cover</span>
+          </span>
+        </button>
+        <button id="modalCancelEditBtn" class="modal-icon-btn modal-icon-btn-close" title="Zrušiť úpravu" style="margin-left:auto;">
+          <span class="modal-icon-wrap">
+            <svg class="modal-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            <span class="modal-icon-label">Zrušiť</span>
+          </span>
+        </button>
       </div>
     </div>
   </div>
@@ -931,6 +997,35 @@
         <button id="chooseLangSk" class="btn btn-primary" style="flex:1;">Slovenčina</button>
         <button id="chooseLangEn" class="btn btn-outline" style="flex:1;">English</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Galéria obalov -->
+<div id="coverGalleryModal" style="display:none; position:fixed; inset:0; background:rgba(28,27,25,0.7); z-index:200; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--card); border-radius:16px; max-width:720px; width:100%; max-height:85vh; overflow-y:auto; padding:24px 26px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+      <h2 style="margin:0; font-size:18px;" id="coverGalleryTitle">Vybrať obal</h2>
+      <button id="coverGalleryCloseBtn" style="background:none; border:none; font-size:22px; cursor:pointer; color:var(--ink-soft); line-height:1;">×</button>
+    </div>
+    <div id="coverGalleryGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:14px;">
+      <!-- Obaly sa načítajú dynamicky -->
+    </div>
+    <div id="coverGalleryStatus" style="font-size:13px; color:var(--ink-soft); margin-top:14px; text-align:center;"></div>
+    <div id="coverGalleryUrlBox" style="display:none; margin-top:14px; padding:12px; background:var(--bg-sunk); border-radius:8px;">
+      <input type="url" id="coverGalleryUrlInput" placeholder="Vlož URL obrázka (https://...)…" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:'Inter',sans-serif; box-sizing:border-box; margin-bottom:8px;">
+      <div style="display:flex; gap:8px;">
+        <button id="coverGalleryUrlConfirm" class="btn btn-primary" style="font-size:12px; padding:5px 12px;">Použiť</button>
+        <button id="coverGalleryUrlCancel" class="btn" style="font-size:12px; padding:5px 10px;">Zrušiť</button>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap;">
+      <button id="coverGalleryGenerateBtn" class="btn btn-primary" style="font-size:13px;">✨ Generovať AI obal</button>
+      <button id="coverGalleryWebSearchBtn" class="btn" style="font-size:13px;">🔎 Hľadať cez Gemini</button>
+      <button id="coverGallerySearchDbBtn" class="btn" style="font-size:13px;">🔍 Hľadať v databázach</button>
+      <button id="coverGalleryUploadBtn" class="btn" style="font-size:13px;">📁 Nahrať súbor</button>
+      <button id="coverGalleryPasteBtn" class="btn" style="font-size:13px;">📋 Paste URL</button>
+      <button id="coverGalleryRemoveBtn" class="btn" style="font-size:13px; color:var(--danger); border-color:var(--danger-soft);">🗑 Odstrániť obal</button>
     </div>
   </div>
 </div>
