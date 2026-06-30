@@ -338,12 +338,28 @@
         </form>
       </div>
 
-      <div class="panel" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
-        <div>
-          <h2 style="margin-bottom:4px;">📚 Doplniť obaly a popisy</h2>
-          <p id="missingCoversInfo" style="margin:0; font-size:13px; color:var(--ink-soft);"></p>
+      <div class="panel">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+          <div>
+            <h2 style="margin-bottom:4px;">📚 Doplniť obaly a popisy</h2>
+            <p id="missingCoversInfo" style="margin:0; font-size:13px; color:var(--ink-soft);"></p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button id="fetchMissingBtn" class="btn btn-primary">Spustiť dopĺňanie</button>
+            <button id="stopFetchBtn" class="btn btn-outline" style="display:none;">⏹ Zastaviť</button>
+          </div>
         </div>
-        <button id="fetchMissingBtn" class="btn btn-primary">Spustiť dopĺňanie</button>
+        <div style="display:flex; gap:18px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="sourceOpenLibrary" checked> Open Library
+          </label>
+          <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="sourceGoogleBooks"> Google Books
+          </label>
+          <label style="display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="sourceWikidata" checked> Wikidata
+          </label>
+        </div>
       </div>
 
       <div id="statusSection">
