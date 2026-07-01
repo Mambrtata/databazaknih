@@ -196,8 +196,10 @@ export default async (req) => {
             authorScore = hit ? 1 : -1;
           }
 
-          const richness = (r.cover_url ? 0.3 : 0) + (r.description ? 0.15 : 0);
-          // Váhy: presný názov 2, zhoda slov názvu 1, autor 1.2, obsah 0.45.
+          // Obálka je najdôležitejšia — pri viacerých vydaniach tej istej knihy
+          // (rovnaký názov + autor) má vyhrať to, ktoré má obálku. Preto je
+          // bonus za obálku dosť veľký, aby rozhodol medzi inak rovnakými zhodami.
+          const richness = (r.cover_url ? 1.0 : 0) + (r.description ? 0.25 : 0);
           const total = exactTitle * 2 + titleScore + authorScore * 1.2 + richness;
           return { r, total, titleScore, exactTitle, authorScore };
         });
@@ -229,7 +231,11 @@ export default async (req) => {
             .filter(s => s.titleScore >= 0.4 || s.authorScore > 0)
             .slice(0, 8)
             .forEach(s => pushCand(s.r));
-        } else if (strongMatch && hasContent) {
+        } else if (strongMatch) {
+          // Vrátime katalógovú knihu aj keď nemá obálku — má správny názov,
+          // autora a prípadne rok/popis, čo sú platné dáta. Chýbajúcu obálku
+          // appka následne doplní z Open Library / Google Books (fetchBookDetails
+          // pokračuje na ďalšie zdroje, keď coverUrl chýba).
           const book = rowToBook(best.r);
           return new Response(JSON.stringify({ found: true, book }), {
             status: 200,

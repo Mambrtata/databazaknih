@@ -2531,9 +2531,18 @@ async function saveEditedBook() {
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
 
-  if (!book.coverUrl) {
-    rescanFromModal();
-  } else {
+  // Po úprave názvu/autora potichu skontroluj katalóg a doplň LEN prázdne
+  // polia (obálka, popis, rok, strany). Nič vyplnené sa neprepíše.
+  // Toast sa zobrazí len ak sa naozaj niečo doplnilo.
+  if (!book.coverUrl || !book.description) {
+    const filled = await enrichBookFromCatalog(book);
+    saveBooks(true);
+    filterAndRenderBooks();
+    if (filled.length) {
+      showToast(tf('enrichedFromCatalog', { fields: filled.join(', ') }), 'success', 3000);
+    }
+  }
+  if (book.coverUrl) {
     modalCover.src = book.coverUrl;
     modalDescription.textContent = book.description || t('descNotFound');
   }
@@ -3007,6 +3016,101 @@ async function fetchFromCatalog({ isbn, title, author } = {}) {
   } catch (e) {
     // Ticho — katalóg je len prvý pokus, ostatné zdroje bežia ďalej.
     return null;
+  }
+}
+
+// ============================================================
+// Tiché doplnenie chýbajúcich údajov knihy z katalógu (a fallback
+// Open Library / Google Books). Dopĺňa LEN prázdne polia — nikdy
+// neprepisuje to, čo používateľ vyplnil. Vráti pole názvov doplnených
+// polí (napr. ['obálka','popis']), aby volajúci vedel, či niečo pribudlo.
+// ============================================================
+async function enrichBookFromCatalog(book) {
+  if (!book || !book.title) return [];
+  const filled = [];
+
+  // Čo knihe chýba? Ak má všetko, netreba nič robiť.
+  const needsCover = !book.coverUrl;
+  const needsDesc = !book.description || book.description === t('descNotFound');
+  const needsYear = !book.publishYear;
+  const needsPages = !book.pageCount;
+  if (!needsCover && !needsDesc && !needsYear && !needsPages) return [];
+
+  // Použijeme rovnaký reťazec zdrojov ako pri pridaní (katalóg → OL → GB).
+  // fetchBookDetails vracia coverUrl/description/publishYear/pageCount.
+  let details;
+  try {
+    details = await fetchBookDetails(
+      book.title, book.author, book.originalTitle, book, getEnabledSources()
+    );
+  } catch (e) {
+    return [];
+  }
+  if (!details) return [];
+
+  // Doplň LEN prázdne polia.
+  if (needsCover && details.coverUrl) { book.coverUrl = details.coverUrl; filled.push('obálka'); }
+  if (needsDesc && details.description && details.description !== t('descNotFound')) {
+    book.description = details.description; filled.push('popis');
+  }
+  if (needsYear && details.publishYear) { book.publishYear = details.publishYear; filled.push('rok'); }
+  if (needsPages && details.pageCount) { book.pageCount = details.pageCount; filled.push('strany'); }
+
+  if (details.sources) book.sourcesTried = details.sources;
+
+  return filled;
+}
+
+// ============================================================
+// Periodické doplnenie z katalógu — pár krát za deň prejde knihy, ktorým
+// niečo chýba, a doplní ich z KATALÓGU (databáza priebežne dostáva nové
+// obálky/popisy). Spustí sa max raz za PERIODIC_SCAN_INTERVAL, aby to
+// nezaťažovalo API pri každom otvorení stránky. Používa LEN katalóg
+// (náš zdroj, bez limitov) — externé zdroje (OL/GB) sa tu zámerne
+// nevolajú, aby sa nevyčerpávali ich kvóty; tie rieši manuálne dopĺňanie.
+// ============================================================
+const PERIODIC_SCAN_KEY = 'domaca_kniznica_last_catalog_scan';
+const PERIODIC_SCAN_INTERVAL = 8 * 60 * 60 * 1000; // 8 hodín
+
+async function periodicCatalogScan() {
+  const last = parseInt(localStorage.getItem(PERIODIC_SCAN_KEY) || '0', 10);
+  if (Date.now() - last < PERIODIC_SCAN_INTERVAL) return; // ešte nie je čas
+
+  // Knihy, ktorým chýba obálka alebo popis (rok/strany sú menej dôležité).
+  const incomplete = allBooks.filter(b => b.title && (!b.coverUrl || !b.description));
+  if (!incomplete.length) {
+    localStorage.setItem(PERIODIC_SCAN_KEY, String(Date.now()));
+    return;
+  }
+
+  let totalFilled = 0;
+  for (const book of incomplete) {
+    // Pýtame sa LEN katalógu (nie OL/GB), doplníme len prázdne polia.
+    let cat = null;
+    try {
+      cat = await fetchFromCatalog({ isbn: book.isbn, title: book.title, author: book.author });
+    } catch (e) { continue; }
+    if (!cat) continue;
+
+    let changed = false;
+    if (!book.coverUrl && cat.coverUrl) { book.coverUrl = cat.coverUrl; changed = true; }
+    if ((!book.description || book.description === t('descNotFound')) && cat.description) {
+      book.description = cat.description; changed = true;
+    }
+    if (!book.publishYear && cat.publishYear) { book.publishYear = cat.publishYear; changed = true; }
+    if (!book.pageCount && cat.pageCount) { book.pageCount = cat.pageCount; changed = true; }
+    if (changed) totalFilled++;
+
+    // Malá pauza, nech nezahltíme Supabase pri veľkom katalógu.
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  localStorage.setItem(PERIODIC_SCAN_KEY, String(Date.now()));
+
+  if (totalFilled > 0) {
+    saveBooks(true);
+    filterAndRenderBooks();
+    showToast(tf('periodicScanFilled', { count: totalFilled }), 'success', 4000);
   }
 }
 
@@ -4342,6 +4446,11 @@ async function init() {
   // stránky (spôsobovalo to zbytočné opakované vyčerpávanie API kvót) —
   // spustí sa len manuálne, tlačidlom "Doplniť chýbajúce obaly".
   updateFetchMissingButtonLabel();
+
+  // Periodický sken katalógu (max raz za ~8h) — na pozadí doplní z katalógu
+  // knihy, ktorým chýba obálka/popis (databáza priebežne pribúda). Nevolá
+  // externé API, len náš katalóg, takže kvóty OL/GB neohrozuje.
+  periodicCatalogScan();
 }
 
 // ============================================================

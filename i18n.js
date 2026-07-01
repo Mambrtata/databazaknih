@@ -132,6 +132,10 @@ const UI_STRINGS = {
     matchApplied: "Metadáta knihy aktualizované.",
     sourceCatalog: "Katalóg",
 
+    // === Tiché doplnenie z katalógu ===
+    enrichedFromCatalog: "Doplnené z katalógu: {fields}.",
+    periodicScanFilled: "Katalóg doplnil údaje pre {count} kníh.",
+
     // === Doplnene kluce (JS-generovane retazce) ===
     genre_worldClassics: "Svetová klasika",
     genre_slovakCzech: "Slovenská a česká literatúra",
@@ -518,6 +522,10 @@ const UI_STRINGS = {
     matchNothing: "No candidates found. Try editing the title or author and run again.",
     matchApplied: "Book metadata updated.",
     sourceCatalog: "Catalog",
+
+    // === Silent enrichment from catalog ===
+    enrichedFromCatalog: "Filled in from the catalog: {fields}.",
+    periodicScanFilled: "The catalog filled in data for {count} books.",
 
     // === Added keys (JS-generated strings) ===
     genre_worldClassics: "World classics",
