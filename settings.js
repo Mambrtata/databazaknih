@@ -26,7 +26,7 @@ async function authHeaders() {
     const token = await currentUser.jwt();
     return token ? { Authorization: 'Bearer ' + token } : {};
   } catch (e) {
-    console.error('Nepodarilo sa obnoviť prihlasovací token:', e);
+    console.error(t('tokenRefreshFail'), e);
     return {};
   }
 }
@@ -87,7 +87,7 @@ function loadApiKey() {
   const saved = localStorage.getItem(API_KEY_STORAGE);
   if (saved) {
     apiKeyInput.value = saved;
-    apiKeyStatus.textContent = 'Kľúč je uložený.';
+    apiKeyStatus.textContent = t('keySaved');
     apiKeyStatus.className = 'status-msg ok';
   }
 }
@@ -95,7 +95,7 @@ apiKeyInput.addEventListener('input', () => {
   const val = apiKeyInput.value.trim();
   if (val) {
     localStorage.setItem(API_KEY_STORAGE, val);
-    apiKeyStatus.textContent = 'Kľúč uložený.';
+    apiKeyStatus.textContent = t('keySaved2');
     apiKeyStatus.className = 'status-msg ok';
   } else {
     localStorage.removeItem(API_KEY_STORAGE);
@@ -107,7 +107,7 @@ function loadBooksApiKey() {
   const saved = localStorage.getItem(BOOKS_API_KEY_STORAGE);
   if (saved) {
     booksApiKeyInput.value = saved;
-    booksApiKeyStatus.textContent = 'Kľúč je uložený.';
+    booksApiKeyStatus.textContent = t('keySaved');
     booksApiKeyStatus.className = 'status-msg ok';
   }
 }
@@ -115,7 +115,7 @@ booksApiKeyInput.addEventListener('input', () => {
   const val = booksApiKeyInput.value.trim();
   if (val) {
     localStorage.setItem(BOOKS_API_KEY_STORAGE, val);
-    booksApiKeyStatus.textContent = 'Kľúč uložený.';
+    booksApiKeyStatus.textContent = t('keySaved2');
     booksApiKeyStatus.className = 'status-msg ok';
   } else {
     localStorage.removeItem(BOOKS_API_KEY_STORAGE);
@@ -151,7 +151,7 @@ async function loadBooks() {
       isPublicEnabled = !!cloudData.publicEnabled;
     }
   } catch (e) {
-    console.error('Nepodarilo sa načítať katalóg:', e);
+    console.error(t('loadCatalogFail'), e);
   }
   updatePublicToggleUI();
 }
@@ -188,19 +188,19 @@ publicToggle.addEventListener('change', async () => {
   updatePublicToggleUI();
   await syncToCloud();
   publicStatus.textContent = isPublicEnabled
-    ? 'Verejný náhľad je zapnutý — pošli odkaz nižšie komukoľvek, koho chceš nechať nazrieť do knižnice.'
-    : 'Verejný náhľad je vypnutý.';
+    ? t('publicViewOn')
+    : t('publicViewOff');
   publicStatus.className = 'status-msg ok';
 });
 
 copyPublicLinkBtn.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(publicLinkInput.value);
-    publicStatus.textContent = 'Odkaz skopírovaný do schránky.';
+    publicStatus.textContent = t('linkCopied');
     publicStatus.className = 'status-msg ok';
   } catch (e) {
     publicLinkInput.select();
-    publicStatus.textContent = 'Skopíruj odkaz ručne (Ctrl+C).';
+    publicStatus.textContent = t('copyLinkManual');
     publicStatus.className = 'status-msg bad';
   }
 });
@@ -231,7 +231,7 @@ exportBtn.addEventListener('click', () => {
   const payload = { exportedAt: new Date().toISOString(), bookCount: allBooks.length, books: allBooks };
   const dateStr = new Date().toISOString().slice(0, 10);
   downloadBlob(JSON.stringify(payload, null, 2), `kniznica-zaloha-${dateStr}.json`, 'application/json');
-  importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (JSON, plná záloha).`;
+  importStatus.textContent = tf('exportedJson', { n: allBooks.length });
   importStatus.className = 'status-msg ok';
 });
 
@@ -244,7 +244,7 @@ exportCsvBtn.addEventListener('click', () => {
   const csvContent = '\uFEFF' + header.join(',') + '\n' + rows.join('\n');
   const dateStr = new Date().toISOString().slice(0, 10);
   downloadBlob(csvContent, `kniznica-${dateStr}.csv`, 'text/csv;charset=utf-8');
-  importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (CSV, pre Goodreads/LibraryThing).`;
+  importStatus.textContent = tf('exportedCsvShort', { n: allBooks.length });
   importStatus.className = 'status-msg ok';
 });
 
@@ -276,19 +276,19 @@ importFileInput.addEventListener('change', (event) => {
     try {
       parsed = JSON.parse(reader.result);
     } catch (e) {
-      importStatus.textContent = 'Tento súbor nie je platný JSON export.';
+      importStatus.textContent = t('notValidJsonExport');
       importStatus.className = 'status-msg bad';
       return;
     }
     const importedBooks = Array.isArray(parsed) ? parsed : parsed.books;
     if (!Array.isArray(importedBooks)) {
-      importStatus.textContent = 'Súbor neobsahuje rozpoznateľný zoznam kníh.';
+      importStatus.textContent = t('noRecognizableList');
       importStatus.className = 'status-msg bad';
       return;
     }
     const validBooks = importedBooks.filter(b => b && typeof b.title === 'string' && b.title.trim());
     if (validBooks.length === 0) {
-      importStatus.textContent = 'V súbore sa nenašla žiadna platná kniha.';
+      importStatus.textContent = t('noValidBook');
       importStatus.className = 'status-msg bad';
       return;
     }
@@ -302,18 +302,18 @@ importFileInput.addEventListener('change', (event) => {
     if (allBooks.length === 0) {
       allBooks = normalizedImport.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
       await syncToCloud();
-      importStatus.textContent = `Naimportovaných ${allBooks.length} kníh.`;
+      importStatus.textContent = tf('importedBooks', { n: allBooks.length });
       importStatus.className = 'status-msg ok';
       return;
     }
 
     const duplicateCount = normalizedImport.filter(b => findDuplicateBook(b)).length;
     pendingImportBooks = normalizedImport;
-    importChoiceSummary.textContent = `Import obsahuje ${validBooks.length} kníh (z toho ${duplicateCount} sa zhoduje s knihami, ktoré už máš v katalógu). Tvoj aktuálny katalóg má ${allBooks.length} kníh.`;
+    importChoiceSummary.textContent = tf('importSummary', { n: validBooks.length, dup: duplicateCount, cur: allBooks.length });
     importChoiceModal.style.display = 'flex';
   };
   reader.onerror = () => {
-    importStatus.textContent = 'Súbor sa nepodarilo prečítať.';
+    importStatus.textContent = t('fileReadFail');
     importStatus.className = 'status-msg bad';
   };
   reader.readAsText(file);
@@ -328,7 +328,7 @@ importReplaceBtn.addEventListener('click', async () => {
   if (!pendingImportBooks) return;
   allBooks = pendingImportBooks.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
   await syncToCloud();
-  importStatus.textContent = `Katalóg nahradený — ${allBooks.length} kníh.`;
+  importStatus.textContent = tf('catalogReplaced', { n: allBooks.length });
   importStatus.className = 'status-msg ok';
   importChoiceModal.style.display = 'none';
   pendingImportBooks = null;
@@ -342,7 +342,7 @@ importMergeBtn.addEventListener('click', async () => {
     addedCount++;
   });
   await syncToCloud();
-  importStatus.textContent = `Pridaných ${addedCount} nových kníh, ${skippedCount} duplicít preskočených.`;
+  importStatus.textContent = tf('addedSkipped', { added: addedCount, skipped: skippedCount });
   importStatus.className = 'status-msg ok';
   importChoiceModal.style.display = 'none';
   pendingImportBooks = null;
@@ -385,17 +385,17 @@ confirmDangerBtn.addEventListener('click', async () => {
 
 deleteAllBooksBtn.addEventListener('click', () => {
   openDangerConfirm(
-    'Zmazať všetky knihy?',
-    `Toto natrvalo vymaže všetkých ${allBooks.length} kníh z tvojho katalógu. Účet a prihlásenie zostanú — môžeš začať znova od nuly. Túto akciu nie je možné vrátiť späť (urob si radšej export pred zmazaním).`,
-    'ZMAZAŤ',
+    t('deleteAllBooksQ'),
+    tf('deleteAllBooksMsg', { n: allBooks.length }),
+    t('deleteWord'),
     async () => {
-      dangerStatus.textContent = 'Mažem…';
+      dangerStatus.textContent = t('deletingEllipsis');
       dangerStatus.className = 'status-msg';
       allBooks = [];
       isPublicEnabled = false;
       await syncToCloud();
       localStorage.removeItem(getStorageKey());
-      dangerStatus.textContent = 'Všetky knihy boli zmazané.';
+      dangerStatus.textContent = t('allBooksDeleted');
       dangerStatus.className = 'status-msg ok';
     }
   );
@@ -403,11 +403,11 @@ deleteAllBooksBtn.addEventListener('click', () => {
 
 deleteAccountBtn.addEventListener('click', () => {
   openDangerConfirm(
-    'Zmazať účet?',
-    'Toto natrvalo zmaže tvoj účet vrátane prihlasovacích údajov aj všetkých kníh. Po tomto kroku sa už nebudeš môcť prihlásiť pod týmto účtom a táto akcia sa nedá vrátiť späť.',
-    'ZMAZAŤ ÚČET',
+    t('deleteAccountQ'),
+    t('deleteAccountMsg'),
+    t('deleteAccountWord'),
     async () => {
-      dangerStatus.textContent = 'Mažem účet…';
+      dangerStatus.textContent = t('deletingAccountEllipsis');
       dangerStatus.className = 'status-msg';
       try {
         const headers = await authHeaders();
@@ -417,20 +417,20 @@ deleteAccountBtn.addEventListener('click', () => {
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          dangerStatus.textContent = err.error || 'Zmazanie účtu zlyhalo. Skús to znova.';
+          dangerStatus.textContent = err.error || t('deleteAccountFailed');
           dangerStatus.className = 'status-msg bad';
           return;
         }
         localStorage.removeItem(getStorageKey());
-        dangerStatus.textContent = 'Účet bol zmazaný. O chvíľu ťa presmerujeme…';
+        dangerStatus.textContent = t('accountDeletedRedirect');
         dangerStatus.className = 'status-msg ok';
         setTimeout(() => {
           window.netlifyIdentity?.logout();
           location.href = 'index.html';
         }, 2000);
       } catch (error) {
-        console.error('Chyba pri mazaní účtu:', error);
-        dangerStatus.textContent = 'Nepodarilo sa spojiť so serverom. Skús to znova.';
+        console.error(t('deleteAccountErr'), error);
+        dangerStatus.textContent = t('serverConnectFail');
         dangerStatus.className = 'status-msg bad';
       }
     }
@@ -472,7 +472,7 @@ function setupAuth() {
       } else if (attempts > 20) {
         clearInterval(interval);
         // Lokálny vývoj bez Identity — odblokujeme nastavenia aj tak.
-        showSettings({ id: 'local-dev', email: 'lokálny vývoj (bez prihlásenia)' });
+        showSettings({ id: 'local-dev', email: t('localDevNoLogin') });
       }
     }, 250);
     return;

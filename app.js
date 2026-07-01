@@ -25,6 +25,51 @@ const GENRES = [
   "Naskenované z fotky"
 ];
 
+// Mapa SK názov žánru → i18n kľúč. Samotné hodnoty v GENRES a v book.genre
+// ostávajú kanonické (slovenské) — podľa nich sa filtruje a porovnáva. Prekladá
+// sa len ZOBRAZENIE cez displayGenre(). Sem patrí aj "Nezaradené" (fallback
+// hodnota), nech sa preloží aj tá, keď sa zobrazuje.
+const GENRE_KEYS = {
+  "Svetová klasika": "genre_worldClassics",
+  "Slovenská a česká literatúra": "genre_slovakCzech",
+  "Spoločenské a psychologické romány": "genre_socialPsych",
+  "Historické a dobrodružné romány": "genre_histAdventure",
+  "Krimi, thrillery a špionážne romány": "genre_crimeThriller",
+  "Vojnové romány": "genre_war",
+  "Humor a satira": "genre_humorSatire",
+  "Sci-fi a fantasy": "genre_scifiFantasy",
+  "Povesti a legendy": "genre_talesLegends",
+  "Nezaradená beletria": "genre_otherFiction",
+  "Poézia": "genre_poetry",
+  "Životopisy a Dejiny": "genre_bioHistory",
+  "Umenie, Dizajn a Architektúra": "genre_artDesign",
+  "Veda, Príroda a Cestopisy": "genre_scienceNature",
+  "Spoločnosť, Psychológia a Ostatné": "genre_societyPsych",
+  "Slovníky a Učebnice": "genre_dictTextbooks",
+  "Publikácie, Sprievodcovia a Kolektívne diela": "genre_publications",
+  "Neznámy / Nečitateľný autor": "genre_unknownAuthor",
+  "Naskenované z fotky": "genre_scannedFromPhoto",
+  "Nezaradené": "uncategorized",
+};
+
+// Preloží žáner len na zobrazenie; internú hodnotu (book.genre) nemení.
+function displayGenre(g) {
+  return GENRE_KEYS[g] ? t(GENRE_KEYS[g]) : g;
+}
+
+// Správny tvar slova "kniha" podľa počtu a jazyka rozhrania. SK má trojtvar
+// (1 kniha / 2–4 knihy / 5+ kníh), EN má book/books.
+function bookCountWord(n) {
+  if (getUiLanguage() === 'en') return n === 1 ? 'book' : 'books';
+  return n === 1 ? 'kniha' : (n < 5 ? 'knihy' : 'kníh');
+}
+
+// Preloží zdroj obalu len na zobrazenie. Hodnota "Aktuálny" ostáva kanonická,
+// lebo sa podľa nej porovnáva (odstránenie aktuálneho pseudo-obalu).
+function displaySource(src) {
+  return src === 'Aktuálny' ? t('current') : src;
+}
+
 const STORAGE_KEY_BASE = "domaca_kniznica_books_v1";
 
 // localStorage kľúč MUSÍ byť viazaný na konkrétneho prihláseného používateľa —
@@ -45,15 +90,15 @@ const LANGUAGE_STORAGE = "domaca_kniznica_language";
 // "name" je anglický názov jazyka pre Gemini prompt (presnejšie než skratka),
 // "label" je to, čo vidí používateľ vo výbere.
 const SUPPORTED_LANGUAGES = [
-  { code: 'sk', name: 'Slovak', label: 'Slovenčina' },
-  { code: 'cs', name: 'Czech', label: 'Čeština' },
-  { code: 'en', name: 'English', label: 'Angličtina' },
-  { code: 'de', name: 'German', label: 'Nemčina' },
-  { code: 'pl', name: 'Polish', label: 'Poľština' },
-  { code: 'hu', name: 'Hungarian', label: 'Maďarčina' },
-  { code: 'fr', name: 'French', label: 'Francúzština' },
-  { code: 'es', name: 'Spanish', label: 'Španielčina' },
-  { code: 'it', name: 'Italian', label: 'Taliančina' },
+  { code: 'sk', name: 'Slovak', label: t('lang_sk') },
+  { code: 'cs', name: 'Czech', label: t('lang_cs') },
+  { code: 'en', name: 'English', label: t('lang_en') },
+  { code: 'de', name: 'German', label: t('lang_de') },
+  { code: 'pl', name: 'Polish', label: t('lang_pl') },
+  { code: 'hu', name: 'Hungarian', label: t('lang_hu') },
+  { code: 'fr', name: 'French', label: t('lang_fr') },
+  { code: 'es', name: 'Spanish', label: t('lang_es') },
+  { code: 'it', name: 'Italian', label: t('lang_it') },
 ];
 
 function getUserLanguage() {
@@ -372,7 +417,7 @@ async function authHeaders() {
     const token = await currentUser.jwt();
     return token ? { Authorization: 'Bearer ' + token } : {};
   } catch (e) {
-    console.error('Nepodarilo sa obnoviť prihlasovací token:', e);
+    console.error(t('tokenRefreshFail'), e);
     return {};
   }
 }
@@ -409,7 +454,7 @@ function loadLocalBooksOnly() {
       }));
     }
   } catch (e) {
-    console.error('Chyba pri načítaní z localStorage:', e);
+    console.error(t('loadLocalStorageErr'), e);
     allBooks = [];
   }
 }
@@ -486,11 +531,11 @@ function exportCatalog() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (JSON, plná záloha).`;
+    importStatus.textContent = tf('exportedJson', { n: allBooks.length });
     importStatus.className = 'api-status ok';
   } catch (error) {
-    console.error('Chyba pri exporte katalógu:', error);
-    importStatus.textContent = 'Export sa nepodaril. Skús to znova.';
+    console.error(t('exportCatalogErr'), error);
+    importStatus.textContent = t('exportFail');
     importStatus.className = 'api-status bad';
   }
 }
@@ -535,11 +580,11 @@ function exportCatalogCsv() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    importStatus.textContent = `Stiahnutých ${allBooks.length} kníh (CSV, pre Goodreads/LibraryThing — bez obalov, tie sú len v JSON zálohe).`;
+    importStatus.textContent = tf('exportedCsv', { n: allBooks.length });
     importStatus.className = 'api-status ok';
   } catch (error) {
-    console.error('Chyba pri CSV exporte katalógu:', error);
-    importStatus.textContent = 'CSV export sa nepodaril. Skús to znova.';
+    console.error(t('exportCsvErr'), error);
+    importStatus.textContent = t('exportCsvFail');
     importStatus.className = 'api-status bad';
   }
 }
@@ -583,21 +628,21 @@ function importCatalog(file) {
     try {
       parsed = JSON.parse(reader.result);
     } catch (error) {
-      importStatus.textContent = 'Tento súbor nie je platný JSON export z tohto katalógu.';
+      importStatus.textContent = t('notValidJsonExportFull');
       importStatus.className = 'api-status bad';
       return;
     }
 
     const importedBooks = Array.isArray(parsed) ? parsed : parsed.books;
     if (!Array.isArray(importedBooks)) {
-      importStatus.textContent = 'Súbor neobsahuje rozpoznateľný zoznam kníh.';
+      importStatus.textContent = t('noRecognizableList');
       importStatus.className = 'api-status bad';
       return;
     }
 
     const validBooks = importedBooks.filter(b => b && typeof b.title === 'string' && b.title.trim());
     if (validBooks.length === 0) {
-      importStatus.textContent = 'V súbore sa nenašla žiadna platná kniha.';
+      importStatus.textContent = t('noValidBook');
       importStatus.className = 'api-status bad';
       return;
     }
@@ -620,7 +665,7 @@ function importCatalog(file) {
       allBooks = normalizedImport.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
       saveBooks(true);
       filterAndRenderBooks();
-      importStatus.textContent = `Naimportovaných ${allBooks.length} kníh.`;
+      importStatus.textContent = tf('importedBooks', { n: allBooks.length });
       importStatus.className = 'api-status ok';
       return;
     }
@@ -628,7 +673,7 @@ function importCatalog(file) {
     const duplicateCount = normalizedImport.filter(b => findDuplicateBook(b)).length;
     pendingImportBooks = normalizedImport;
 
-    importChoiceSummary.textContent = `Import obsahuje ${validBooks.length} kníh (z toho ${duplicateCount} sa zhoduje s knihami, ktoré už máš v katalógu). Tvoj aktuálny katalóg má ${allBooks.length} kníh.`;
+    importChoiceSummary.textContent = tf('importSummary', { n: validBooks.length, dup: duplicateCount, cur: allBooks.length });
 
     importChoiceModal.classList.remove('hidden');
     requestAnimationFrame(() => {
@@ -637,7 +682,7 @@ function importCatalog(file) {
     });
   };
   reader.onerror = () => {
-    importStatus.textContent = 'Súbor sa nepodarilo prečítať.';
+    importStatus.textContent = t('fileReadFail');
     importStatus.className = 'api-status bad';
   };
   reader.readAsText(file);
@@ -651,7 +696,7 @@ function closeImportChoiceModal() {
 }
 
 importCancelBtn.addEventListener('click', () => {
-  importStatus.textContent = 'Import zrušený.';
+  importStatus.textContent = t('importCancelled');
   importStatus.className = 'api-status';
   closeImportChoiceModal();
 });
@@ -664,7 +709,7 @@ importReplaceBtn.addEventListener('click', () => {
   allBooks = pendingImportBooks.map((b, i) => ({ id: 'imported_' + i + '_' + Date.now(), ...b }));
   saveBooks(true);
   filterAndRenderBooks();
-  importStatus.textContent = `Katalóg nahradený — ${allBooks.length} kníh.`;
+  importStatus.textContent = tf('catalogReplaced', { n: allBooks.length });
   importStatus.className = 'api-status ok';
   closeImportChoiceModal();
 });
@@ -683,7 +728,7 @@ importMergeBtn.addEventListener('click', () => {
   });
   saveBooks(true);
   filterAndRenderBooks();
-  importStatus.textContent = `Pridaných ${addedCount} nových kníh, ${skippedCount} duplicít preskočených.`;
+  importStatus.textContent = tf('addedSkipped', { added: addedCount, skipped: skippedCount });
   importStatus.className = 'api-status ok';
   closeImportChoiceModal();
 });
@@ -693,8 +738,8 @@ function saveBooks(immediate = false) {
   try {
     localStorage.setItem(getStorageKey(), JSON.stringify(allBooks));
   } catch (e) {
-    console.error('Chyba pri ukladaní do localStorage:', e);
-    showError('Pamäť prehliadača pre tento katalóg je plná (typicky pri veľkom množstve vlastných fotiek obalov). Skús zmenšiť počet vlastných fotiek, alebo si urob export katalógu a pokračuj v inom prehliadači.');
+    console.error(t('saveLocalStorageErr'), e);
+    showError(t('storageFull'));
   }
 
   if (!cloudSyncAvailable) return;
@@ -752,10 +797,10 @@ function loadBooksApiKey() {
 function updateBooksApiKeyStatus() {
   const key = booksApiKeyInput.value.trim();
   if (key) {
-    booksApiKeyStatus.textContent = 'Kľúč je uložený lokálne. Sťahovanie obalov by malo byť stabilnejšie.';
+    booksApiKeyStatus.textContent = t('gbKeySavedStable');
     booksApiKeyStatus.className = 'api-status ok';
   } else {
-    booksApiKeyStatus.textContent = 'Bez kľúča hrozia chyby 429 (príliš veľa požiadaviek).';
+    booksApiKeyStatus.textContent = t('gbNoKey429');
     booksApiKeyStatus.className = 'api-status bad';
   }
 }
@@ -773,10 +818,10 @@ booksApiKeyInput.addEventListener('blur', () => {
 function updateApiKeyStatus() {
   const key = apiKeyInput.value.trim();
   if (key) {
-    apiKeyStatus.textContent = 'Kľúč je uložený lokálne. Foto-rozpoznávanie je aktívne.';
+    apiKeyStatus.textContent = t('geminiKeySavedActive');
     apiKeyStatus.className = 'api-status ok';
   } else {
-    apiKeyStatus.textContent = 'Bez kľúča nebude fungovať rozpoznávanie z fotky.';
+    apiKeyStatus.textContent = t('geminiNoKey');
     apiKeyStatus.className = 'api-status bad';
   }
 }
@@ -983,14 +1028,14 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
         if (!lastNetworkErrorShown) {
           lastNetworkErrorShown = true;
           errorMessage.textContent = booksApiKey
-            ? 'Google Books API odmieta požiadavky aj s tvojím kľúčom (HTTP 429, denná kvóta je pravdepodobne vyčerpaná). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.'
-            : 'Google Books API odmieta požiadavky bez kľúča (HTTP 429). Skúšam Open Library a Wikidata, no tie pokryjú len časť kníh.';
+            ? t('gb429WithKey')
+            : t('gb429NoKey');
         }
       } else if (response.status === 403) {
         sources.googleBooks = 'empty';
         if (!lastNetworkErrorShown) {
           lastNetworkErrorShown = true;
-          showError('Google Books API odmietol kľúč (HTTP 403). Over, že je v Google Cloud Console povolené „Books API“ pre tento kľúč a že kľúč nemá obmedzenia, ktoré by blokovali tento web.');
+          showError(t('gb403'));
         }
       } else if (response.ok) {
         const data = await response.json();
@@ -1013,7 +1058,7 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
         sources.googleBooks = 'empty';
       }
     } catch (error) {
-      console.error('Chyba pri načítaní detailov z Google Books pre "' + title + '":', error);
+      console.error(t('gbDetailErr') + title + '":', error);
       // Sieťová chyba nie je fatálna ani trvalá — neoznačujeme zdroj ako "empty",
       // nech sa skúsi znova nabudúce (mohol to byť len dočasný výpadok).
     }
@@ -1388,11 +1433,11 @@ async function addBook(title, author, genre, originalTitle, skipDetails, isbn, s
       return 'duplicate';
     }
     const proceed = confirm(
-      `Kniha „${duplicate.title}"${duplicate.author ? ' (' + duplicate.author + ')' : ''} už v knižnici je.\n\n` +
-      `OK = pridať aj tak (napr. máš viac kópií)\nZrušiť = nepridávať`
+      tf('dupPrompt', { title: duplicate.title, authorPart: duplicate.author ? ' (' + duplicate.author + ')' : '' }) +
+      t('dupOkCancel')
     );
     if (!proceed) {
-      showToast('Pridanie zrušené — kniha už v knižnici existuje.', 'info', 4000);
+      showToast(t('addCancelledExists'), 'info', 4000);
       return 'duplicate';
     }
   }
@@ -1413,7 +1458,7 @@ async function addBook(title, author, genre, originalTitle, skipDetails, isbn, s
   filterAndRenderBooks();
 
   if (!skipDetails) {
-    showLoader(`Hľadám obal a popis pre „${newBook.title}“…`);
+    showLoader(tf('searchingCoverFor', { title: newBook.title }));
     const { coverUrl, description, publishYear, pageCount, networkError, sources } = await fetchBookDetails(newBook.title, newBook.author, newBook.originalTitle, newBook, getEnabledSources());
     if (!networkError) {
       newBook.coverUrl = coverUrl;
@@ -1445,10 +1490,13 @@ function updateFetchMissingButtonLabel() {
   if (!missingCoversInfo) return;
   const missingCount = allBooks.filter(b => !b.coverUrl).length;
   if (missingCount === 0) {
-    missingCoversInfo.textContent = 'Všetky knihy v katalógu už majú obal alebo placeholder.';
+    missingCoversInfo.textContent = t('allHaveCoverPlaceholder');
     fetchMissingBtn.disabled = true;
   } else {
-    missingCoversInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} obal. Spustenie skúsi vybrané zdroje nižšie (zdroje, ktoré už raz nič nenašli, sa pri tej istej knihe preskočia).`;
+    const bookWord = getUiLanguage() === 'en'
+      ? (missingCount === 1 ? 'book has' : 'books have')
+      : (missingCount === 1 ? 'kniha nemá' : 'kníh nemá');
+    missingCoversInfo.textContent = tf('missingCoverInfo', { n: missingCount, bookWord });
     fetchMissingBtn.disabled = false;
   }
   updateMissingIsbnInfo();
@@ -1491,10 +1539,13 @@ function updateMissingIsbnInfo() {
   if (!missingIsbnInfo) return;
   const missingCount = allBooks.filter(b => !b.isbn).length;
   if (missingCount === 0) {
-    missingIsbnInfo.textContent = 'Všetky knihy v katalógu už majú priradené ISBN.';
+    missingIsbnInfo.textContent = t('allHaveIsbn');
     bulkFindIsbnBtn.disabled = true;
   } else {
-    missingIsbnInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} priradené ISBN. Pre staré vydania (najmä spred ~1970) ISBN často neexistuje vôbec — tie zostanú bez výsledku.`;
+    const bookWord = getUiLanguage() === 'en'
+      ? (missingCount === 1 ? "book doesn't have" : "books don't have")
+      : (missingCount === 1 ? 'kniha nemá' : 'kníh nemá');
+    missingIsbnInfo.textContent = tf('missingIsbnInfo', { n: missingCount, bookWord });
     bulkFindIsbnBtn.disabled = false;
   }
 }
@@ -1512,7 +1563,7 @@ async function bulkFindIsbn() {
 
   bulkIsbnInProgress = true;
   bulkFindIsbnBtn.disabled = true;
-  statusMessage.textContent = `Hľadám ISBN — 0 z ${missing.length}…`;
+  statusMessage.textContent = tf('searchingIsbnStart', { total: missing.length });
 
   let foundCount = 0;
   let processed = 0;
@@ -1532,15 +1583,15 @@ async function bulkFindIsbn() {
         foundCount++;
         if (foundCount % 8 === 0) saveBooks();
       }
-      statusMessage.textContent = `Hľadám ISBN — ${processed} z ${missing.length}, nájdených ${foundCount}…`;
+      statusMessage.textContent = tf('searchingIsbnProgress', { done: processed, total: missing.length, found: foundCount });
     }
     saveBooks(true);
     filterAndRenderBooks();
     statusMessage.textContent = '';
     if (foundCount > 0) {
-      showToast(`Dohľadané ISBN pre ${foundCount} z ${missing.length} kníh (oranžovo — over si ich, ide o pravdepodobnú zhodu podľa názvu).`, 'success', 7000);
+      showToast(tf('isbnFoundSummary', { found: foundCount, total: missing.length }), 'success', 7000);
     } else {
-      showToast('Pre žiadnu z kníh sa nepodarilo dohľadať ISBN. Staré vydania ho často nemajú vôbec.', 'info');
+      showToast(t('noIsbnFound'), 'info');
     }
   } finally {
     bulkIsbnInProgress = false;
@@ -1553,10 +1604,13 @@ function updateMissingMetaInfo() {
   if (!missingMetaInfo) return;
   const missingCount = allBooks.filter(b => !b.publishYear && !b.pageCount).length;
   if (missingCount === 0) {
-    missingMetaInfo.textContent = 'Všetky knihy v katalógu už majú rok vydania alebo počet strán.';
+    missingMetaInfo.textContent = t('allHaveYearPages');
     bulkFindMetaBtn.disabled = true;
   } else {
-    missingMetaInfo.textContent = `${missingCount} ${missingCount === 1 ? 'kniha nemá' : 'kníh nemá'} rok vydania ani počet strán. Pre staré/menej známe vydania sa nemusí podariť nájsť oboje.`;
+    const bookWord = getUiLanguage() === 'en'
+      ? (missingCount === 1 ? "book doesn't have" : "books don't have")
+      : (missingCount === 1 ? 'kniha nemá' : 'kníh nemá');
+    missingMetaInfo.textContent = tf('missingMetaInfo', { n: missingCount, bookWord });
     bulkFindMetaBtn.disabled = false;
   }
 }
@@ -1571,7 +1625,7 @@ async function bulkFindMeta() {
 
   bulkMetaInProgress = true;
   bulkFindMetaBtn.disabled = true;
-  statusMessage.textContent = `Hľadám rok a strany — 0 z ${missing.length}…`;
+  statusMessage.textContent = tf('searchingMetaStart', { total: missing.length });
 
   let foundCount = 0;
   let processed = 0;
@@ -1590,15 +1644,15 @@ async function bulkFindMeta() {
         foundCount++;
         if (foundCount % 8 === 0) saveBooks();
       }
-      statusMessage.textContent = `Hľadám rok/strany — ${processed} z ${missing.length}, nájdených ${foundCount}…`;
+      statusMessage.textContent = tf('searchingMetaProgress', { done: processed, total: missing.length, found: foundCount });
     }
     saveBooks(true);
     filterAndRenderBooks();
     statusMessage.textContent = '';
     if (foundCount > 0) {
-      showToast(`Dohľadané údaje pre ${foundCount} z ${missing.length} kníh.`, 'success', 6000);
+      showToast(tf('metaFoundSummary', { found: foundCount, total: missing.length }), 'success', 6000);
     } else {
-      showToast('Pre žiadnu z kníh sa nepodarilo dohľadať rok ani počet strán.', 'info');
+      showToast(t('noMetaFound'), 'info');
     }
   } finally {
     bulkMetaInProgress = false;
@@ -1625,7 +1679,7 @@ async function bulkFindMeta() {
 async function searchViaGeminiWeb(book) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
-    showError('Pre vyhľadanie cez Gemini (web) najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    showError(t('geminiKeyNeededSearch'));
     return null;
   }
 
@@ -1637,7 +1691,7 @@ async function searchViaGeminiWeb(book) {
   // funkčnú URL obrázka obalu (vidí len text výsledkov vyhľadávania, nie
   // skutočné obrázkové súbory) — preto žiadame radšej odkaz na stránku
   // (antikvariát/databáza), odkiaľ si obal vieš stiahnuť a nahrať ručne.
-  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || 'neznámy'}" (slovenské/české vydanie, žáner: ${book.genre || 'neznámy'}). 
+  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || t('unknown')}" (slovenské/české vydanie, žáner: ${book.genre || t('unknown')}).
 Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, martinus.sk, alebo stránky vydavateľstiev.
 Ak nájdeš obal knihy, získaj PRIAMU URL obrázka (končiacu na .jpg, .png, .webp) — nie URL stránky, ale samotného obrázka.
 Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).
@@ -1660,14 +1714,14 @@ Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => null);
-      showError('Vyhľadanie cez Gemini sa nepodarilo: ' + (errBody?.error?.message || ('HTTP ' + response.status)));
+      showError(t('geminiSearchFailed') + (errBody?.error?.message || ('HTTP ' + response.status)));
       return null;
     }
 
     const result = await response.json();
     let text = result.candidates?.[0]?.content?.parts?.find(p => p.text)?.text?.trim();
     if (!text) {
-      showError('Gemini nevrátil žiadnu odpoveď. Skús to znova.');
+      showError(t('geminiNoResponse'));
       return null;
     }
 
@@ -1678,7 +1732,7 @@ Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
     try {
       parsed = JSON.parse(cleanedText);
     } catch (e) {
-      showError('Gemini vrátil neočakávaný formát. Skús to znova.');
+      showError(t('geminiBadFormat'));
       return null;
     }
 
@@ -1687,8 +1741,8 @@ Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
 
     return { description, coverImageUrl };
   } catch (error) {
-    console.error('Chyba pri vyhľadávaní cez Gemini:', error);
-    showError('Nepodarilo sa spojiť s Gemini API.');
+    console.error(t('geminiSearchErr'), error);
+    showError(t('geminiConnectFail'));
     return null;
   }
 }
@@ -1696,7 +1750,7 @@ Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
 async function translateDescription(book) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
-    showError('Pre preklad popisu najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    showError(t('geminiKeyNeededTranslate'));
     return null;
   }
   if (!book.description) return null;
@@ -1705,7 +1759,7 @@ async function translateDescription(book) {
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const systemPrompt = `You are a helpful assistant that writes short book summaries in ${lang.name} for a personal library catalog.`;
-  const userQuery = `Na základe nasledujúceho cudzojazyčného popisu knihy "${book.title}" od autora "${book.author || 'neznámy'}" napíš krátku, vlastnými slovami sformulovanú anotáciu v jazyku: ${lang.name} (2-4 vety, bez doslovného prekladu vety po vete). Odpovedz IBA samotným textom anotácie v jazyku ${lang.name}, bez úvodzoviek, bez nadpisu, bez ďalšieho komentára.\n\nPôvodný popis:\n${book.description}`;
+  const userQuery = `Na základe nasledujúceho cudzojazyčného popisu knihy "${book.title}" od autora "${book.author || t('unknown')}" napíš krátku, vlastnými slovami sformulovanú anotáciu v jazyku: ${lang.name} (2-4 vety, bez doslovného prekladu vety po vete). Odpovedz IBA samotným textom anotácie v jazyku ${lang.name}, bez úvodzoviek, bez nadpisu, bez ďalšieho komentára.\n\nPôvodný popis:\n${book.description}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -1728,13 +1782,13 @@ async function translateDescription(book) {
     const result = await response.json();
     const translated = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!translated) {
-      showError('Gemini nevrátil žiadny preložený text. Skús to znova.');
+      showError(t('geminiNoTranslation'));
       return null;
     }
     return translated;
   } catch (error) {
     console.error('Chyba pri preklade popisu:', error);
-    showError('Nepodarilo sa spojiť s Gemini API pre preklad. Skontroluj pripojenie.');
+    showError(t('geminiConnectFailTranslate'));
     return null;
   }
 }
@@ -1746,7 +1800,7 @@ async function fetchAllMissingDetails() {
 
   const enabledSources = getEnabledSources();
   if (!enabledSources.openLibrary && !enabledSources.googleBooks && !enabledSources.wikidata) {
-    errorMessage.textContent = 'Vyber aspoň jeden zdroj nižšie (Open Library, Google Books, Wikidata), inak nie je čo spustiť.';
+    errorMessage.textContent = t('pickAtLeastOneSource');
     return;
   }
 
@@ -1759,7 +1813,7 @@ async function fetchAllMissingDetails() {
   fetchShouldStop = false;
   fetchMissingBtn.disabled = true;
   stopFetchBtn.style.display = 'inline-flex';
-  showLoader(`Dopĺňam obaly pre ${missing.length} kníh… (0/${missing.length})`);
+  showLoader(tf('fillingCoversStart', { total: missing.length }));
   let count = 0; // počet úspešne doplnených kníh
   let processed = 0; // počet spracovaných kníh (úspešne aj neúspešne) — pre priebežné počítadlo
   let rateLimitedCount = 0;
@@ -1791,7 +1845,7 @@ async function fetchAllMissingDetails() {
           rateLimitedCount++;
           // Počítadlo priebehu necháme viditeľné aj nad chybovou hláškou,
           // nech je jasné, že beh stále pokračuje na pozadí.
-          statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
+          statusMessage.textContent = tf('fillingCoversProgress', { total: missing.length, done: processed });
         }
         // iná sieťová chyba (napr. file:// alebo výpadok, alebo rate-limit) — skús ďalšiu knihu
         continue;
@@ -1811,7 +1865,7 @@ async function fetchAllMissingDetails() {
       }
 
       count++;
-      statusMessage.textContent = `Dopĺňam obaly pre ${missing.length} kníh… (${processed}/${missing.length})`;
+      statusMessage.textContent = tf('fillingCoversProgress', { total: missing.length, done: processed });
       if (count % 8 === 0) {
         saveBooks();
         filterAndRenderBooks();
@@ -1822,15 +1876,15 @@ async function fetchAllMissingDetails() {
     if (stoppedEarly) {
       hideLoader();
       statusMessage.textContent = '';
-      errorMessage.textContent = `Dopĺňanie bolo zastavené (spracovaných ${processed} z ${missing.length} kníh). Zvyšok môžeš doplniť neskôr opätovným spustením.`;
+      errorMessage.textContent = tf('fillingStopped', { done: processed, total: missing.length });
     } else if (rateLimitedCount > 0) {
       showRetryButton();
       statusMessage.textContent = '';
-      errorMessage.textContent = `Google Books API bolo vyčerpané pre ${rateLimitedCount} kníh (skúsené aspoň cez ostatné zvolené zdroje). Skús to znova neskôr, alebo zajtra po obnovení dennej kvóty.`;
+      errorMessage.textContent = tf('gbExhausted', { n: rateLimitedCount });
     } else {
       hideLoader();
       if (count > 0) {
-        showToast(`Doplnené obaly/popisy pre ${count} z ${missing.length} kníh.`, 'success');
+        showToast(tf('coversFilledSummary', { done: count, total: missing.length }), 'success');
       }
     }
   } finally {
@@ -1847,7 +1901,7 @@ async function fetchAllMissingDetails() {
 // ============================================================
 
 function populateGenreSelect() {
-  bookGenreInput.innerHTML = GENRES.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+  bookGenreInput.innerHTML = GENRES.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(displayGenre(g))}</option>`).join('');
 }
 
 function escapeHtml(str) {
@@ -1908,17 +1962,17 @@ function renderSidebar() {
     .sort((a, b) => a.localeCompare(b, 'sk'));
 
   let html = `<a href="#" class="genre-link ${selectedGenre === 'Všetky' ? 'active' : ''}" data-genre="Všetky">
-      <span class="label"><span class="swatch" style="background:var(--ink-soft);"></span>Všetky kategórie</span><span class="count">${allBooks.length}</span></a>`;
+      <span class="label"><span class="swatch" style="background:var(--ink-soft);"></span>${t('allCategoriesLabel')}</span><span class="count">${allBooks.length}</span></a>`;
 
   genresPresent.forEach(genre => {
     const count = allBooks.filter(b => (b.genre || 'Nezaradené') === genre).length;
     const swatchColor = swatchColorForGenre(genre);
     html += `<a href="#" class="genre-link ${selectedGenre === genre ? 'active' : ''}" data-genre="${escapeHtml(genre)}">
-        <span class="label"><span class="swatch" style="background:${swatchColor};"></span>${escapeHtml(genre)}</span><span class="count">${count}</span></a>`;
+        <span class="label"><span class="swatch" style="background:${swatchColor};"></span>${escapeHtml(displayGenre(genre))}</span><span class="count">${count}</span></a>`;
   });
   genreListContainer.innerHTML = html;
   if (mobileCategoriesActiveLabel) {
-    mobileCategoriesActiveLabel.textContent = selectedGenre === 'Všetky' ? '' : selectedGenre;
+    mobileCategoriesActiveLabel.textContent = selectedGenre === 'Všetky' ? '' : displayGenre(selectedGenre);
   }
 }
 
@@ -2001,7 +2055,7 @@ function renderShelfView(booksToRender, sortKey) {
     genreNames.forEach(genre => {
       const section = document.createElement('div');
       section.className = 'genre-section';
-      section.innerHTML = `<h3>${escapeHtml(genre)} <span class="tally">— ${byGenre[genre].length} ${byGenre[genre].length === 1 ? 'kniha' : 'kníh'}</span></h3>`;
+      section.innerHTML = `<h3>${escapeHtml(displayGenre(genre))} <span class="tally">— ${byGenre[genre].length} ${bookCountWord(byGenre[genre].length)}</span></h3>`;
       appendShelfBooks(section, byGenre[genre]);
       bookList.appendChild(section);
     });
@@ -2119,7 +2173,7 @@ function createShelfRow(books) {
 function createGenreSection(genre, books) {
   const section = document.createElement('div');
   section.className = 'genre-section';
-  section.innerHTML = `<h3>${escapeHtml(genre)} <span class="tally">— ${books.length} ${books.length === 1 ? 'kniha' : 'kníh'}</span></h3>`;
+  section.innerHTML = `<h3>${escapeHtml(displayGenre(genre))} <span class="tally">— ${books.length} ${bookCountWord(books.length)}</span></h3>`;
   const grid = document.createElement('div');
   grid.className = 'grid';
   books.forEach(b => grid.appendChild(createBookElement(b)));
@@ -2143,15 +2197,15 @@ function createBookElement(book) {
       ${cover
         ? `<img src="${escapeHtml(cover)}" alt="Obal: ${escapeHtml(book.title)}" loading="lazy" data-id="${book.id}" onerror="window.__handleCoverError && window.__handleCoverError(this);">`
         : stillLoading
-          ? `<span style="font-size:11px;color:var(--ink-soft);padding:8px;text-align:center;">hľadám obal…</span>`
+          ? `<span style="font-size:11px;color:var(--ink-soft);padding:8px;text-align:center;">${t('coverSearching')}</span>`
           : `<div class="book-spine" style="background:${spine.bg}; color:${spine.fg};">
                <span class="spine-title">${escapeHtml(book.title)}</span>
                <span class="spine-author">${escapeHtml(book.author) || ''}</span>
              </div>`
       }
-      <button class="card-delete-btn" data-id="${book.id}" title="Odstrániť z katalógu" aria-label="Odstrániť">✕</button>
-      ${book.readStatus === 'read' ? `<span class="card-read-badge" title="Prečítané">✓</span>` : ''}
-      ${book.loanedTo ? `<span class="card-loan-badge" title="Požičané: ${escapeHtml(book.loanedTo)}">${book.loanedAt ? (() => { const d = new Date(book.loanedAt); return `\u{1F4E4} ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`; })() : '\u{1F4E4}'}</span>` : ''}
+      <button class="card-delete-btn" data-id="${book.id}" title="${t('removeFromCatalog')}" aria-label="${t('remove')}">✕</button>
+      ${book.readStatus === 'read' ? `<span class="card-read-badge" title="${t('readTitle')}">✓</span>` : ''}
+      ${book.loanedTo ? `<span class="card-loan-badge" title="${t('loaned')}: ${escapeHtml(book.loanedTo)}">${book.loanedAt ? (() => { const d = new Date(book.loanedAt); return `\u{1F4E4} ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`; })() : '\u{1F4E4}'}</span>` : ''}
     </div>
     <div class="book-body">
       <p class="book-title" title="${escapeHtml(book.title)}">${escapeHtml(book.title)}</p>
@@ -2207,7 +2261,7 @@ async function handleDetailClick(bookId) {
     modalOriginalTitle.style.display = 'none';
   }
   modalAuthor.textContent = book.author || t('unknownAuthor');
-  modalGenre.textContent = book.genre || 'Nezaradené';
+  modalGenre.textContent = displayGenre(book.genre || 'Nezaradené');
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
 
@@ -2255,12 +2309,12 @@ async function handleDetailClick(bookId) {
         modalCover.removeAttribute('src');
       }
       modalDescription.textContent = details.networkError
-        ? 'Nepodarilo sa pripojiť k internetu / Google Books API. Skús to znova neskôr.'
+        ? t('cantConnectGb')
         : book.description;
       updateTranslateButtonVisibility(book);
     } catch (error) {
-      console.error('Neočakávaná chyba pri hľadaní detailov v modale:', error);
-      modalDescription.textContent = 'Nastala neočakávaná chyba pri hľadaní detailov. Skús znova kliknúť na „Detail“, alebo „Hľadať“ na karte knihy.';
+      console.error(t('unexpectedDetailErr'), error);
+      modalDescription.textContent = t('unexpectedDetailMsg');
     } finally {
       modalLoader.style.display = 'none';
       modalDescription.style.display = 'block';
@@ -2308,8 +2362,8 @@ function updateModalIsbnDisplay(book) {
   const isCertainIsbn = book.isbnSource === 'scanned' || book.isbnSource === 'manual';
   const dotColor = isCertainIsbn ? '#3F8F5C' : '#D9A441';
   const dotTitle = isCertainIsbn
-    ? 'ISBN odfotené/zadané ručne — isté'
-    : 'ISBN dohľadané podľa názvu — over si to, môže patriť inej knihe';
+    ? t('isbnCertain')
+    : t('isbnProbable');
 
   let html = `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${dotColor}; margin-right:5px;" title="${dotTitle}"></span>ISBN ${escapeHtml(book.isbn)}`;
 
@@ -2317,7 +2371,7 @@ function updateModalIsbnDisplay(book) {
   // napr. kniha mala iný rok zapísaný a toto ISBN vrátilo iný rok. V tom
   // prípade zobrazíme jasné textové upozornenie, nech sa to nedá prehliadnuť.
   if (isCertainIsbn && book.isbnVerified === false) {
-    html += ` <span style="color:#9A6A14; font-weight:600;" title="Rok vydania, ktorý appka pre knihu mala, sa nezhoduje s rokom podľa tohto ISBN — môže ísť o iné vydanie.">⚠️ vydanie nepotvrdené</span>`;
+    html += ` <span style="color:#9A6A14; font-weight:600;" title="${t('editionMismatchTitle')}">${t('editionUnconfirmed')}</span>`;
   }
 
   modalIsbn.innerHTML = html;
@@ -2328,27 +2382,30 @@ function updateModalIsbnDisplay(book) {
 // Open Library aj Google Books vracajú jazyk ako ISO kód (rôzne dĺžky/varianty
 // podľa zdroja) — táto mapa pokrýva najbežnejšie jazyky, ktoré sa v knižnici
 // pravdepodobne vyskytnú, pre čitateľné zobrazenie namiesto holého kódu.
+// Mapa ISO kódu → i18n kľúč s malými písmenami (langLower_*). Preklad sa
+// rieši až v languageLabel() cez t(), aby sledoval jazyk rozhrania.
 const LANGUAGE_CODE_LABELS = {
-  slo: 'slovenčina', sk: 'slovenčina',
-  cze: 'čeština', cs: 'čeština', cz: 'čeština',
-  eng: 'angličtina', en: 'angličtina',
-  ger: 'nemčina', de: 'nemčina',
-  fre: 'francúzština', fr: 'francúzština',
-  spa: 'španielčina', es: 'španielčina',
-  ita: 'taliančina', it: 'taliančina',
-  rus: 'ruština', ru: 'ruština',
-  pol: 'poľština', pl: 'poľština',
-  hun: 'maďarčina', hu: 'maďarčina',
+  slo: 'langLower_sk', sk: 'langLower_sk',
+  cze: 'langLower_cs', cs: 'langLower_cs', cz: 'langLower_cs',
+  eng: 'langLower_en', en: 'langLower_en',
+  ger: 'langLower_de', de: 'langLower_de',
+  fre: 'langLower_fr', fr: 'langLower_fr',
+  spa: 'langLower_es', es: 'langLower_es',
+  ita: 'langLower_it', it: 'langLower_it',
+  rus: 'langLower_ru', ru: 'langLower_ru',
+  pol: 'langLower_pl', pl: 'langLower_pl',
+  hun: 'langLower_hu', hu: 'langLower_hu',
 };
 function languageLabel(code) {
   if (!code) return null;
-  return LANGUAGE_CODE_LABELS[code.toLowerCase()] || code;
+  const key = LANGUAGE_CODE_LABELS[code.toLowerCase()];
+  return key ? t(key) : code;
 }
 
 function updateModalMetaDisplay(book) {
   const parts = [
     book.publishYear,
-    book.pageCount ? book.pageCount + ' strán' : null,
+    book.pageCount ? book.pageCount + t('pagesSuffix') : null,
     book.language ? languageLabel(book.language) : null
   ].filter(Boolean);
   if (parts.length > 0) {
@@ -2370,7 +2427,7 @@ function enterEditMode() {
   editPublishYearInput.value = book.publishYear || '';
   editPageCountInput.value = book.pageCount || '';
   editGenreInput.innerHTML = GENRES.map(g =>
-    `<option value="${escapeHtml(g)}" ${g === book.genre ? 'selected' : ''}>${escapeHtml(g)}</option>`
+    `<option value="${escapeHtml(g)}" ${g === book.genre ? 'selected' : ''}>${escapeHtml(displayGenre(g))}</option>`
   ).join('');
 
   modalViewMode.style.display = 'none';
@@ -2395,7 +2452,7 @@ async function saveEditedBook() {
 
   const newTitle = editTitleInput.value.trim();
   if (!newTitle) {
-    showError('Názov knihy nemôže byť prázdny.');
+    showError(t('titleEmpty'));
     return;
   }
 
@@ -2447,7 +2504,7 @@ async function saveEditedBook() {
     modalOriginalTitle.style.display = 'none';
   }
   modalAuthor.textContent = book.author || t('unknownAuthor');
-  modalGenre.textContent = book.genre || 'Nezaradené';
+  modalGenre.textContent = displayGenre(book.genre || 'Nezaradené');
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
 
@@ -2494,7 +2551,7 @@ async function rescanFromModal() {
     if (!foundSomething && !details.networkError) {
       const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
       if (apiKey) {
-        modalDescription.textContent = 'AI hľadá metadata…';
+        modalDescription.textContent = t('aiSearchingMeta');
         modalDescription.style.display = 'block';
         modalLoader.style.display = 'none';
 
@@ -2522,11 +2579,11 @@ async function rescanFromModal() {
     }
 
     modalDescription.textContent = details.networkError
-      ? 'Nepodarilo sa pripojiť k internetu / Google Books API. Skús to znova neskôr.'
+      ? t('cantConnectGb')
       : (book.description || t('descNotFound'));
   } catch (error) {
-    console.error('Neočakávaná chyba pri rescan z modalu:', error);
-    modalDescription.textContent = 'Nastala neočakávaná chyba pri hľadaní detailov. Skús to znova.';
+    console.error(t('unexpectedRescanModalErr'), error);
+    modalDescription.textContent = t('unexpectedDetailMsg2');
   } finally {
     modalLoader.style.display = 'none';
     modalDescription.style.display = 'block';
@@ -2542,11 +2599,11 @@ async function rescanFromModal() {
 async function analyzeImage(base64ImageData) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
-    showError('Pre rozpoznávanie z fotky najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    showError(t('geminiKeyNeededPhoto'));
     return;
   }
 
-  showScanOverlay('Analyzujem fotku police', 'Rozpoznávam knihy na chrbtoch');
+  showScanOverlay(t('analyzingShelfPhoto'), t('recognizingSpines'));
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
@@ -2577,7 +2634,7 @@ async function analyzeImage(base64ImageData) {
       if (!response.ok) {
         if (response.status === 400 || response.status === 403) {
           const errBody = await response.json().catch(() => null);
-          throw { fatal: true, message: errBody?.error?.message || `API kľúč bol odmietnutý (HTTP ${response.status}).` };
+          throw { fatal: true, message: errBody?.error?.message || tf('apiKeyRejected', { status: response.status }) };
         }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -2588,16 +2645,16 @@ async function analyzeImage(base64ImageData) {
       if (candidate && candidate.content?.parts?.[0]?.text) {
         const identifiedBooks = JSON.parse(candidate.content.parts[0].text);
         if (Array.isArray(identifiedBooks) && identifiedBooks.length > 0) {
-          updateScanOverlay(`Nájdených ${identifiedBooks.length} kníh`);
+          updateScanOverlay(tf('foundBooks', { n: identifiedBooks.length }));
           await new Promise(res => setTimeout(res, 500)); // krátka pauza, nech sa stihne zobraziť výsledok
           hideScanOverlay();
           openShelfReviewModal(identifiedBooks);
         } else {
           hideScanOverlay();
-          showError('Na fotke sa nepodarilo rozpoznať žiadne knihy. Skús jasnejšiu fotku chrbtov kníh.');
+          showError(t('noBooksRecognized'));
         }
       } else {
-        throw new Error("Neočakávaná štruktúra odpovede od AI.");
+        throw new Error(t('unexpectedAiStructure'));
       }
       return;
     } catch (error) {
@@ -2610,10 +2667,10 @@ async function analyzeImage(base64ImageData) {
       console.error(`Pokus ${attempts} zlyhal:`, error);
       if (attempts >= maxAttempts) {
         hideScanOverlay();
-        showError("Nepodarilo sa analyzovať obrázok ani po viacerých pokusoch. Skús to znova o chvíľu.");
+        showError(t('analyzeFailedRetries'));
         break;
       }
-      updateScanOverlay(`Skúšam znova (pokus ${attempts + 1}/${maxAttempts})`);
+      updateScanOverlay(tf('retryingAttempt', { attempt: attempts + 1, max: maxAttempts }));
       await new Promise(res => setTimeout(res, Math.pow(2, attempts) * 1000));
     }
   }
@@ -2638,8 +2695,8 @@ function openShelfReviewModal(identifiedBooks) {
 
   const readableCount = shelfReviewBooks.filter(b => b.readable).length;
   const uncertainCount = shelfReviewBooks.length - readableCount;
-  shelfReviewSummary.textContent = `Nájdených ${shelfReviewBooks.length} kníh — ${readableCount} čitateľných` +
-    (uncertainCount > 0 ? `, ${uncertainCount} neisto rozpoznaných (skontroluj pred pridaním).` : '.');
+  shelfReviewSummary.textContent = tf('foundBooksReadable', { n: shelfReviewBooks.length, readable: readableCount }) +
+    (uncertainCount > 0 ? tf('uncertainRecognized', { n: uncertainCount }) : '.');
 
   renderShelfReviewList();
 
@@ -2661,9 +2718,9 @@ function renderShelfReviewList() {
     <label class="review-row ${b.readable ? '' : 'uncertain'}" data-temp-id="${b.tempId}">
       <input type="checkbox" class="review-checkbox" data-temp-id="${b.tempId}" ${b.selected ? 'checked' : ''}>
       <div style="flex:1; min-width:0;">
-        <p class="review-title">${escapeHtml(b.title) || '(bez názvu)'}</p>
+        <p class="review-title">${escapeHtml(b.title) || t('noTitle')}</p>
         <p class="review-author">${escapeHtml(b.author) || t('unknownAuthor')}</p>
-        ${!b.readable ? `<p class="review-warning">⚠️ Neisto rozpoznané — skontroluj názov pred pridaním (môžeš upraviť po pridaní cez „✏️ Upraviť“)</p>` : ''}
+        ${!b.readable ? `<p class="review-warning">${t('reviewWarning')}</p>` : ''}
       </div>
     </label>
   `).join('');
@@ -2694,18 +2751,18 @@ shelfReviewAddBtn.addEventListener('click', async () => {
   }
 
   closeShelfReviewModal();
-  showScanOverlay('Pridávam knihy', `0 z ${toAdd.length} hotovo`);
+  showScanOverlay(t('addingBooks'), tf('doneProgress', { done: 0, total: toAdd.length }));
 
   let count = 0;
   let skipped = 0;
   for (const b of toAdd) {
     const result = await addBook(b.title, b.author, "Naskenované z fotky", '', true, '', true);
     if (result === 'duplicate') { skipped++; } else { count++; }
-    updateScanOverlay(`${count} z ${toAdd.length} hotovo`);
+    updateScanOverlay(tf('doneProgress', { done: count, total: toAdd.length }));
   }
   hideScanOverlay();
-  const skippedNote = skipped > 0 ? ` (${skipped} preskočených — už v knižnici)` : '';
-  showToast(`Pridaných ${count} ${count === 1 ? 'kniha' : (count < 5 ? 'knihy' : 'kníh')} do katalógu${skippedNote}. Dopĺňam obaly…`, 'success', 6000);
+  const skippedNote = skipped > 0 ? tf('skippedInLibrary', { n: skipped }) : '';
+  showToast(tf('addedToCatalog', { n: count, bookWord: bookCountWord(count), skippedNote }), 'success', 6000);
   await fetchAllMissingDetails();
 });
 
@@ -2729,7 +2786,7 @@ function isbnScanSupported() {
 
 async function openIsbnScanModal(onDetected) {
   isbnScanResolve = onDetected;
-  isbnScanStatus.textContent = 'Namier kameru na čiarový kód na zadnej strane knihy…';
+  isbnScanStatus.textContent = t('pointCameraBarcode');
   isbnScanModal.classList.remove('hidden');
   requestAnimationFrame(() => {
     isbnScanModal.style.opacity = '1';
@@ -2760,10 +2817,10 @@ async function openIsbnScanModal(onDetected) {
     isbnScanLoopActive = true;
     runIsbnScanLoop();
   } catch (error) {
-    console.error('Nepodarilo sa spustiť kameru:', error);
+    console.error(t('cameraStartFail'), error);
     isbnScanVideoWrap.style.display = 'none';
     isbnScanFallback.style.display = 'block';
-    isbnScanStatus.textContent = 'Nepodarilo sa získať prístup ku kamere (skontroluj povolenia v prehliadači). Skús nahrať fotku namiesto toho:';
+    isbnScanStatus.textContent = t('cameraAccessFail');
   }
 }
 
@@ -2775,7 +2832,7 @@ async function runIsbnScanLoop() {
         const raw = barcodes[0].rawValue;
         const isbn = normalizeIsbn(raw);
         if (isbn.length === 10 || isbn.length === 13) {
-          isbnScanStatus.textContent = `Rozpoznané: ${isbn}`;
+          isbnScanStatus.textContent = tf('recognized', { isbn });
           const callback = isbnScanResolve;
           closeIsbnScanModal();
           if (callback) callback(isbn);
@@ -2827,7 +2884,7 @@ isbnScanFallbackUpload.addEventListener('change', (event) => {
     const isbn = await analyzeIsbnImage(base64String);
     if (isbn && callback) callback(isbn);
   };
-  reader.onerror = () => showError('Chyba pri načítavaní súboru.');
+  reader.onerror = () => showError(t('fileLoadErr'));
   reader.readAsDataURL(file);
   isbnScanFallbackUpload.value = '';
 });
@@ -2835,7 +2892,7 @@ isbnScanFallbackUpload.addEventListener('change', (event) => {
 async function analyzeIsbnImage(base64ImageData) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
-    showError('Pre rozpoznávanie ISBN z fotky najprv vlož svoj Gemini API kľúč do panela vľavo.');
+    showError(t('geminiKeyNeededIsbn'));
     return null;
   }
 
@@ -2871,20 +2928,20 @@ async function analyzeIsbnImage(base64ImageData) {
     const result = await response.json();
     const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
-      showError('Gemini nevrátil žiadnu odpoveď. Skús to znova s jasnejšou fotkou.');
+      showError(t('geminiNoResponsePhoto'));
       return null;
     }
 
     const parsed = JSON.parse(text);
     const isbn = normalizeIsbn(parsed.isbn || '');
     if (!isbn || (isbn.length !== 10 && isbn.length !== 13)) {
-      showError('Na fotke sa nepodarilo nájsť čitateľné ISBN. Skús odfotiť čiarový kód/ISBN zblízka a v dobrom svetle.');
+      showError(t('noReadableIsbn'));
       return null;
     }
     return isbn;
   } catch (error) {
-    console.error('Chyba pri rozpoznávaní ISBN:', error);
-    showError('Nepodarilo sa spojiť s Gemini API pre rozpoznanie ISBN. Skontroluj pripojenie.');
+    console.error(t('isbnRecognizeErr'), error);
+    showError(t('geminiConnectFailIsbn'));
     return null;
   }
 }
@@ -2925,7 +2982,7 @@ async function lookupBookByIsbn(isbn) {
       }
     }
   } catch (e) {
-    console.error('Chyba pri vyhľadávaní podľa ISBN na Open Library:', e);
+    console.error(t('olIsbnErr'), e);
   }
 
   if (!title) {
@@ -2951,7 +3008,7 @@ async function lookupBookByIsbn(isbn) {
         }
       }
     } catch (e) {
-      console.error('Chyba pri vyhľadávaní podľa ISBN na Google Books:', e);
+      console.error(t('gbIsbnErr'), e);
     }
   }
 
@@ -2961,7 +3018,7 @@ async function lookupBookByIsbn(isbn) {
 // Pridá novú knihu rovno podľa ISBN (bez fotky, napr. z live skenu) —
 // vyhľadá metadáta a uloží do katalógu.
 async function addBookFromIsbn(isbn) {
-  showScanOverlay('Hľadám knihu', `ISBN ${isbn}`);
+  showScanOverlay(t('searchingBook'), `ISBN ${isbn}`);
 
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   let { title, author, coverUrl, description, publishYear, pageCount, language } = await lookupBookByIsbn(isbn);
@@ -2974,7 +3031,7 @@ async function addBookFromIsbn(isbn) {
   hideScanOverlay();
 
   if (!title) {
-    showToast(`ISBN ${isbn} sa rozpoznalo, ale knihu sa nepodarilo dohľadať v žiadnej databáze. Skús ju pridať ručne.`, 'error');
+    showToast(tf('isbnNotFoundInDb', { isbn }), 'error');
     return;
   }
 
@@ -2983,11 +3040,11 @@ async function addBookFromIsbn(isbn) {
   const duplicate = findDuplicateBook({ title: title.trim(), author: (author || '').trim(), isbn });
   if (duplicate) {
     const proceed = confirm(
-      `Kniha „${duplicate.title}“${duplicate.author ? ' (' + duplicate.author + ')' : ''} už v knižnici je.\n\n` +
-      `OK = pridať aj tak (napr. máš viac kópií)\nZrušiť = nepridávať`
+      tf('dupPrompt2', { title: duplicate.title, authorPart: duplicate.author ? ' (' + duplicate.author + ')' : '' }) +
+      t('dupOkCancel')
     );
     if (!proceed) {
-      showToast('Pridanie zrušené — kniha už v knižnici existuje.', 'info', 4000);
+      showToast(t('addCancelledExists'), 'info', 4000);
       return;
     }
   }
@@ -3012,14 +3069,14 @@ async function addBookFromIsbn(isbn) {
   allBooks.unshift(newBook);
   saveBooks(true);
   filterAndRenderBooks();
-  showToast(`Pridané: „${newBook.title}“`, 'success');
+  showToast(tf('added', { title: newBook.title }), 'success');
 }
 
 // Pridá knihu podľa fotky ISBN (fallback cesta, keď live sken nie je
 // dostupný) — najprv Gemini rozpozná ISBN z obrázka, potom rovnaká
 // logika ako addBookFromIsbn.
 async function addBookFromIsbnScan(base64ImageData) {
-  showScanOverlay('Čítam ISBN', 'Rozpoznávam čiarový kód');
+  showScanOverlay(t('readingIsbn'), t('recognizingBarcode'));
   const isbn = await analyzeIsbnImage(base64ImageData);
   if (!isbn) {
     hideScanOverlay();
@@ -3046,7 +3103,7 @@ shelfAddUpload.addEventListener('change', (event) => {
     const base64String = reader.result.replace('data:', '').replace(/^.+,/, '');
     analyzeImage(base64String);
   };
-  reader.onerror = () => showError("Chyba pri načítavaní súboru.");
+  reader.onerror = () => showError(t('fileLoadErr'));
   reader.readAsDataURL(file);
   shelfAddUpload.value = '';
 });
@@ -3094,7 +3151,7 @@ viewShelfBtn.addEventListener('click', () => setViewMode('shelf'));
 
 languageSelect.addEventListener('change', () => {
   localStorage.setItem(LANGUAGE_STORAGE, languageSelect.value);
-  showToast(`Jazyk knižnice nastavený na: ${getLanguageInfo(languageSelect.value).label}. Nové popisy sa budú prekladať do tohto jazyka.`, 'success', 5000);
+  showToast(tf('libLangSetTo', { label: t('lang_' + languageSelect.value) }), 'success', 5000);
 });
 
 genreListContainer.addEventListener('click', (e) => {
@@ -3117,7 +3174,7 @@ bookList.addEventListener('click', (event) => {
   const deleteBtn = event.target.closest('.card-delete-btn');
   if (deleteBtn) {
     event.stopPropagation();
-    if (confirm('Naozaj chceš odstrániť túto knihu z katalógu?')) {
+    if (confirm(t('confirmRemoveBook'))) {
       deleteBook(deleteBtn.dataset.id);
     }
     return;
@@ -3141,7 +3198,7 @@ async function rescanBook(bookId, buttonEl) {
 
   if (buttonEl) {
     buttonEl.disabled = true;
-    buttonEl.textContent = '… hľadám';
+    buttonEl.textContent = t('searchingEllipsis');
   }
 
   try {
@@ -3157,11 +3214,11 @@ async function rescanBook(bookId, buttonEl) {
       if (details.pageCount) book.pageCount = details.pageCount;
       saveBooks(true);
     } else {
-      showError('Nepodarilo sa znova vyhľadať túto knihu — skontroluj pripojenie alebo to skús neskôr.');
+      showError(t('rescanFailed'));
     }
   } catch (error) {
-    console.error('Neočakávaná chyba pri rescan:', error);
-    showError('Nastala neočakávaná chyba pri hľadaní. Skús to znova.');
+    console.error(t('unexpectedRescanErr'), error);
+    showError(t('unexpectedSearchMsg'));
   } finally {
     filterAndRenderBooks();
   }
@@ -3195,11 +3252,11 @@ function openCoverGallery() {
 
   coverGalleryGrid.innerHTML = '';
   coverGalleryStatus.textContent = galleryCovers.length > 0
-    ? 'Klikni na obal pre výber.'
-    : 'Žiadny obal. Hľadaj v databázach alebo generuj AI obal.';
+    ? t('clickCoverToSelect')
+    : t('noCoverGenerate');
   coverGalleryModal.style.display = 'flex';
   coverGalleryGenerateBtn.disabled = false;
-  coverGalleryGenerateBtn.textContent = '✨ Generovať AI obal';
+  coverGalleryGenerateBtn.textContent = t('generateAiCover');
   coverGalleryUrlBox.style.display = 'none';
   renderGalleryCovers();
 }
@@ -3207,7 +3264,7 @@ function openCoverGallery() {
 function renderGalleryCovers() {
   coverGalleryGrid.innerHTML = '';
   if (galleryCovers.length === 0) {
-    coverGalleryGrid.innerHTML = '<p style="color:var(--ink-soft); font-size:13px; grid-column:1/-1;">Zatiaľ žiadne obaly.</p>';
+    coverGalleryGrid.innerHTML = `<p style="color:var(--ink-soft); font-size:13px; grid-column:1/-1;">${t('noCoversYet')}</p>`;
     return;
   }
   galleryCovers.forEach((item, idx) => {
@@ -3222,10 +3279,10 @@ function renderGalleryCovers() {
         onerror="this.style.display='none'; this.nextElementSibling && this.nextElementSibling.classList.add('cover-src-broken');">
       <div class="cover-src-placeholder" style="display:none; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; padding:8px; text-align:center;">
         <span style="font-size:20px;">🖼</span>
-        <span style="font-size:9px; color:var(--ink-soft); word-break:break-all;">${escapeHtml(item.source)}</span>
+        <span style="font-size:9px; color:var(--ink-soft); word-break:break-all;">${escapeHtml(displaySource(item.source))}</span>
       </div>
-      <span class="cover-src">${escapeHtml(item.source)}</span>
-      <button class="cover-delete" data-idx="${idx}" title="Odstrániť">×</button>
+      <span class="cover-src">${escapeHtml(displaySource(item.source))}</span>
+      <button class="cover-delete" data-idx="${idx}" title="${t('remove')}">×</button>
     `;
     wrap.addEventListener('click', (e) => {
       if (e.target.classList.contains('cover-delete')) return;
@@ -3257,7 +3314,7 @@ function selectGalleryCover(url) {
   saveBooks(true);
   filterAndRenderBooks();
   renderGalleryCovers();
-  showToast('Obal uložený.', 'success', 2000);
+  showToast(t('coverSaved'), 'success', 2000);
 }
 
 async function fetchAllGalleryCovers(book) {
@@ -3278,7 +3335,7 @@ async function fetchAllGalleryCovers(book) {
   try {
     const olData = await fetchFromOpenLibraryRaw(book.title, book.author, null);
     if (olData.coverUrl && !sources.find(s => s.url === olData.coverUrl)) {
-      sources.push({ url: olData.coverUrl, source: 'Open Library (názov)' });
+      sources.push({ url: olData.coverUrl, source: t('olByTitle') });
     }
   } catch(e) {}
 
@@ -3320,20 +3377,20 @@ async function fetchAllGalleryCovers(book) {
   });
 
   coverGalleryStatus.textContent = galleryCovers.length > 0
-    ? `Nájdených ${galleryCovers.length} obalov. Klikni na obal pre výber.`
-    : 'Žiadne obaly nenájdené v databázach. Skús vygenerovať AI obal.';
+    ? tf('coversFoundClick', { n: galleryCovers.length })
+    : t('noCoversInDb');
   renderGalleryCovers();
 }
 
 async function generateAiCover(book) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
-    showToast('Pre generovanie AI obalu vlož Gemini API kľúč v nastaveniach.', 'error', 4000);
+    showToast(t('geminiKeyNeededAiCover'), 'error', 4000);
     return;
   }
 
   coverGalleryGenerateBtn.disabled = true;
-  coverGalleryGenerateBtn.textContent = '⏳ Generujem…';
+  coverGalleryGenerateBtn.textContent = t('generatingBtn');
   coverGalleryStatus.textContent = 'Gemini analyzuje knihu a generuje obal…';
 
   try {
@@ -3371,18 +3428,18 @@ async function generateAiCover(book) {
     });
 
     if (found === 0) {
-      coverGalleryStatus.textContent = 'Gemini negeneroval žiadny obal. Skús znova.';
+      coverGalleryStatus.textContent = t('geminiNoCover');
       return;
     }
 
-    coverGalleryStatus.textContent = `Vygenerované ${found} AI obaly. Klikni pre výber.`;
+    coverGalleryStatus.textContent = tf('aiCoversGenerated', { n: found });
     renderGalleryCovers();
   } catch (err) {
     coverGalleryStatus.textContent = `Chyba: ${err.message}`;
     showToast('Generovanie zlyhalo: ' + err.message, 'error', 5000);
   } finally {
     coverGalleryGenerateBtn.disabled = false;
-    coverGalleryGenerateBtn.textContent = '✨ Generovať AI';
+    coverGalleryGenerateBtn.textContent = t('generateAi');
   }
 }
 
@@ -3423,7 +3480,7 @@ modalAiBtn.addEventListener('click', async () => {
     }
 
     if (!result.description && !result.coverImageUrl) {
-      showToast('Gemini nenašiel popis ani obal.', 'error', 3000);
+      showToast(t('geminiNoDescCover'), 'error', 3000);
     }
 
     if (modalErrorMessage) modalErrorMessage.textContent = '';
@@ -3453,11 +3510,11 @@ coverGallerySearchDbBtn.addEventListener('click', () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
   coverGallerySearchDbBtn.disabled = true;
-  coverGallerySearchDbBtn.textContent = '⏳ Hľadám…';
-  coverGalleryStatus.textContent = 'Hľadám v Open Library, Google Books, Wikidata…';
+  coverGallerySearchDbBtn.textContent = t('searchingBtn');
+  coverGalleryStatus.textContent = t('searchingInDbs');
   fetchAllGalleryCovers(book).then(() => {
     coverGallerySearchDbBtn.disabled = false;
-    coverGallerySearchDbBtn.textContent = '🔍 Hľadať v databázach';
+    coverGallerySearchDbBtn.textContent = t('searchInDbs');
   });
 });
 
@@ -3485,7 +3542,7 @@ coverGalleryUrlConfirm.addEventListener('click', async () => {
 
   coverGalleryUrlConfirm.disabled = true;
   coverGalleryUrlConfirm.textContent = '⏳';
-  coverGalleryStatus.textContent = 'Sťahujem obrázok…';
+  coverGalleryStatus.textContent = t('downloadingImage');
 
   try {
     let finalUrl = url;
@@ -3499,20 +3556,20 @@ coverGalleryUrlConfirm.addEventListener('click', async () => {
       if (data.dataUrl) finalUrl = data.dataUrl;
     } catch (proxyErr) {
       // Proxy nedostupná (napr. lokálne) — ulož priamu URL
-      console.warn('image-proxy nedostupná, používam priamu URL:', proxyErr.message);
+      console.warn(t('imageProxyUnavailable'), proxyErr.message);
     }
 
-    galleryCovers.push({ url: finalUrl, source: 'Vlastná URL', generated: false });
+    galleryCovers.push({ url: finalUrl, source: t('customUrl'), generated: false });
     renderGalleryCovers();
     selectGalleryCover(finalUrl);
     coverGalleryUrlBox.style.display = 'none';
     coverGalleryUrlInput.value = '';
-    coverGalleryStatus.textContent = 'Obal uložený.';
+    coverGalleryStatus.textContent = t('coverSaved');
   } catch (err) {
     coverGalleryStatus.textContent = `Chyba: ${err.message}`;
   } finally {
     coverGalleryUrlConfirm.disabled = false;
-    coverGalleryUrlConfirm.textContent = 'Použiť';
+    coverGalleryUrlConfirm.textContent = t('use');
   }
 });
 
@@ -3530,18 +3587,18 @@ coverGalleryWebSearchBtn.addEventListener('click', async () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
   coverGalleryWebSearchBtn.disabled = true;
-  coverGalleryWebSearchBtn.textContent = '⏳ Hľadám…';
-  coverGalleryStatus.textContent = 'Gemini hľadá obal na webe…';
+  coverGalleryWebSearchBtn.textContent = t('searchingBtn');
+  coverGalleryStatus.textContent = t('geminiSearchingCoverWeb');
   const result = await searchViaGeminiWeb(book);
   if (result?.coverImageUrl) {
     galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini web', generated: false });
     renderGalleryCovers();
-    coverGalleryStatus.textContent = 'Gemini našiel obal. Klikni pre výber.';
+    coverGalleryStatus.textContent = t('geminiFoundCoverClick');
   } else {
-    coverGalleryStatus.textContent = 'Gemini nenašiel obal.';
+    coverGalleryStatus.textContent = t('geminiNoCoverFound');
   }
   coverGalleryWebSearchBtn.disabled = false;
-  coverGalleryWebSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
+  coverGalleryWebSearchBtn.textContent = t('searchGeminiWeb');
 });
 
 coverGalleryRemoveBtn.addEventListener('click', () => {
@@ -3554,7 +3611,7 @@ coverGalleryRemoveBtn.addEventListener('click', () => {
   filterAndRenderBooks();
   galleryCovers = galleryCovers.filter(g => g.source !== 'Aktuálny');
   renderGalleryCovers();
-  showToast('Obal odstránený.', 'success', 2000);
+  showToast(t('coverRemoved'), 'success', 2000);
 });
 
 
@@ -3564,7 +3621,7 @@ modalTranslateBtn.addEventListener('click', async () => {
   if (!book) return;
 
   modalTranslateBtn.disabled = true;
-  modalTranslateBtn.textContent = '… prekladám';
+  modalTranslateBtn.textContent = t('translatingEllipsis');
 
   const translated = await translateDescription(book);
   if (translated) {
@@ -3575,7 +3632,7 @@ modalTranslateBtn.addEventListener('click', async () => {
   }
 
   modalTranslateBtn.disabled = false;
-  modalTranslateBtn.textContent = '🌐 Preložiť popis';
+  modalTranslateBtn.textContent = t('translateDescBtn');
   updateTranslateButtonVisibility(book);
 });
 
@@ -3585,8 +3642,8 @@ function updateReadButton(book) {
   modalReadBtn.style.color = isRead ? '#2D7D52' : '';
   modalReadBtn.style.borderColor = isRead ? '#2D7D52' : '';
   modalReadBtn.style.background = isRead ? '#EBF5EE' : '';
-  modalReadLabel.textContent = isRead ? 'Prečítané ✓' : 'Prečítané';
-  modalReadBtn.title = isRead ? 'Označiť ako neprečítané' : 'Označiť ako prečítané';
+  modalReadLabel.textContent = isRead ? t('readCheck') : t('readTitle');
+  modalReadBtn.title = isRead ? t('markAsUnread') : t('markAsRead');
 }
 
 function updateLoanSection(book) {
@@ -3603,7 +3660,7 @@ function updateLoanSection(book) {
     modalLoanIconBtn.style.color = loaned ? '#E8A020' : '';
     modalLoanIconBtn.style.borderColor = loaned ? '#E8A020' : '';
     modalLoanIconBtn.style.background = loaned ? '#FDF6E3' : '';
-    modalLoanIconLabel.textContent = loaned ? '📤 ' + book.loanedTo.split(' ')[0] : 'Požičané';
+    modalLoanIconLabel.textContent = loaned ? '📤 ' + book.loanedTo.split(' ')[0] : t('loaned');
   }
   if (loaned) {
     modalLoanName.textContent = book.loanedTo;
@@ -3660,13 +3717,13 @@ modalReturnBtn.addEventListener('click', () => {
   saveBooks(true);
   filterAndRenderBooks();
   updateLoanSection(book);
-  showToast('Kniha označená ako vrátená.', 'success', 3000);
+  showToast(t('bookMarkedReturned'), 'success', 3000);
 });
 
 modalWhatsAppBtn.addEventListener('click', () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
-  const text = `Ahoj ${book.loanedTo}, len pripomínam že u seba máš moju knihu „${book.title}"${book.author ? ' od ' + book.author : ''} 📚 Keď ju dočítaš, daj vedieť!`;
+  const text = tf('loanReminder', { name: book.loanedTo, title: book.title, authorPart: book.author ? ' od ' + book.author : '' });
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 });
 
@@ -3722,7 +3779,7 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
   if (!book) return;
 
   modalGeminiSearchBtn.disabled = true;
-  modalGeminiSearchBtn.textContent = '… hľadám na webe';
+  modalGeminiSearchBtn.textContent = t('searchingWebEllipsis');
   errorMessage.textContent = '';
 
   const result = await searchViaGeminiWeb(book);
@@ -3753,15 +3810,15 @@ modalGeminiSearchBtn.addEventListener('click', async () => {
     }
 
     if (result.coverImageUrl) {
-      errorMessage.textContent = 'Gemini našiel a uložil obal.';
+      errorMessage.textContent = t('geminiFoundSavedCover');
     } else if (!result.description) {
-      errorMessage.textContent = 'Gemini nenašiel ani obal ani popis.';
+      errorMessage.textContent = t('geminiNoCoverNoDesc');
     } else {
       errorMessage.textContent = '';
     }
   }
   modalGeminiSearchBtn.disabled = false;
-  modalGeminiSearchBtn.textContent = '🔎 Hľadať cez Gemini (web)';
+  modalGeminiSearchBtn.textContent = t('searchGeminiWeb');
 });
 
 // Priradí rozpoznané/zadané ISBN existujúcej knihe a rovno spustí rescan
@@ -3777,7 +3834,7 @@ async function assignIsbnToBook(book, isbn) {
   saveBooks(true);
   if (currentModalBookId === book.id) { updateModalIsbnDisplay(book); updateModalMetaDisplay(book); }
   filterAndRenderBooks();
-  statusMessage.textContent = `Rozpoznané ISBN: ${isbn}. Hľadám obal a popis…`;
+  statusMessage.textContent = tf('recognizedIsbnSearching', { isbn });
 
   // Overenie vydania: porovnáme rok, ktorý kniha už mala (ak nejaký), s rokom
   // vráteným pre toto konkrétne ISBN. Ak nesedia, ISBN zostáva isté (zelené),
@@ -3830,7 +3887,7 @@ customCoverUpload.addEventListener('change', (event) => {
       modalCover.src = dataUrl;
     }
   }, () => {
-    showError('Nepodarilo sa spracovať obrázok. Skús iný súbor.');
+    showError(t('imageProcessFail'));
   });
 
   customCoverUpload.value = '';
@@ -3952,10 +4009,10 @@ fillAllBtn.addEventListener('click', async () => {
 stopFetchBtn.addEventListener('click', () => {
   fetchShouldStop = true;
   stopFetchBtn.disabled = true;
-  stopFetchBtn.textContent = '⏹ Zastavujem…';
+  stopFetchBtn.textContent = t('stoppingBtn');
   setTimeout(() => {
     stopFetchBtn.disabled = false;
-    stopFetchBtn.textContent = '⏹ Zastaviť';
+    stopFetchBtn.textContent = t('stopBtn');
   }, 2000);
 });
 
@@ -3964,7 +4021,7 @@ exportCsvBtn.addEventListener('click', exportCatalogCsv);
 
 migrateLegacyBtn.addEventListener('click', async () => {
   migrateLegacyBtn.disabled = true;
-  migrateLegacyBtn.textContent = '… prenášam';
+  migrateLegacyBtn.textContent = t('transferringEllipsis');
   migrateStatus.textContent = '';
 
   try {
@@ -3975,23 +4032,23 @@ migrateLegacyBtn.addEventListener('click', async () => {
     const data = await res.json();
 
     if (!res.ok) {
-      migrateStatus.textContent = data.error || 'Migrácia zlyhala.';
+      migrateStatus.textContent = data.error || t('migrationFailed');
       migrateStatus.className = 'api-status bad';
       migrateLegacyBtn.disabled = false;
-      migrateLegacyBtn.textContent = '📦 Priradiť staré dáta k môjmu účtu';
+      migrateLegacyBtn.textContent = t('migrateOldData');
       return;
     }
 
-    showToast(`Prenesených ${data.bookCount} kníh do tvojho účtu.`, 'success', 6000);
+    showToast(tf('migratedBooks', { n: data.bookCount }), 'success', 6000);
     migratePanel.style.display = 'none';
     await loadBooks();
     filterAndRenderBooks();
   } catch (error) {
-    console.error('Chyba pri migrácii:', error);
-    migrateStatus.textContent = 'Nepodarilo sa spojiť so serverom. Skús to znova.';
+    console.error(t('migrationErr'), error);
+    migrateStatus.textContent = t('serverConnectFail');
     migrateStatus.className = 'api-status bad';
     migrateLegacyBtn.disabled = false;
-    migrateLegacyBtn.textContent = '📦 Priradiť staré dáta k môjmu účtu';
+    migrateLegacyBtn.textContent = t('migrateOldData');
   }
 });
 
@@ -4000,18 +4057,18 @@ publicToggle.addEventListener('change', () => {
   updatePublicToggleUI();
   saveBooks(true);
   publicStatus.textContent = isPublicEnabled
-    ? 'Verejný náhľad je zapnutý — pošli odkaz nižšie komukoľvek, koho chceš nechať nazrieť do knižnice.'
-    : 'Verejný náhľad je vypnutý.';
+    ? t('publicViewOn')
+    : t('publicViewOff');
   publicStatus.className = 'api-status ok';
 });
 
 copyPublicLinkBtn.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(publicLinkInput.value);
-    showToast('Odkaz skopírovaný do schránky.', 'success', 3000);
+    showToast(t('linkCopied'), 'success', 3000);
   } catch (e) {
     publicLinkInput.select();
-    showToast('Skopíruj odkaz ručne (Ctrl+C) — automatické kopírovanie zlyhalo.', 'error');
+    showToast(t('copyLinkManualFail'), 'error');
   }
 });
 
@@ -4138,7 +4195,7 @@ function setupAuth() {
         setupAuth();
       } else if (attempts > 20) {
         clearInterval(interval);
-        if (loginStatus) loginStatus.textContent = 'Prihlasovanie nie je dostupné (lokálny vývoj bez Netlify Identity) — pokračujem bez prihlásenia.';
+        if (loginStatus) loginStatus.textContent = t('localDevNoAuth');
         showApp(null);
       }
     }, 250);
