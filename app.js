@@ -327,6 +327,10 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalMoreBtn = document.getElementById('modalMoreBtn'),
   modalMoreMenu = document.getElementById('modalMoreMenu'),
   modalRescanBtn = document.getElementById('modalRescanBtn'),
+  matchModal = document.getElementById('matchModal'),
+  matchGrid = document.getElementById('matchGrid'),
+  matchStatus = document.getElementById('matchStatus'),
+  matchCloseBtn = document.getElementById('matchCloseBtn'),
   modalGeminiSearchBtn = document.getElementById('modalGeminiSearchBtn'),
   modalAiBtn = document.getElementById('modalAiBtn'),
   modalScanIsbnBtn = document.getElementById('modalScanIsbnBtn'),
@@ -3385,6 +3389,151 @@ function selectGalleryCover(url) {
   showToast(t('coverSaved'), 'success', 2000);
 }
 
+// ============================================================
+// Match metadata — používateľ si v detaile môže vybrať správnu knihu
+// z kandidátov (katalóg + Open Library + Google Books), keď automatické
+// priradenie netrafilo. Výber prepíše celý záznam (názov, autor, rok,
+// popis, obálka). Automatické priraďovanie tým nie je dotknuté.
+// ============================================================
+let matchCandidates = [];
+
+async function openMatchModal() {
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!book) return;
+
+  matchCandidates = [];
+  matchGrid.innerHTML = '';
+  matchStatus.textContent = t('matchSearching');
+  matchModal.style.display = 'flex';
+
+  const seen = new Set();
+  const addCand = (c) => {
+    if (!c || !c.title) return;
+    // Kľúč zahŕňa aj zdroj — tá istá kniha z katalógu aj z Open Library sa
+    // zobrazí zvlášť (rôzne obálky, nech si používateľ vyberie). Duplikáty
+    // v rámci jedného zdroja sa odfiltrujú.
+    const key = normalizeKey(c.title) + '|' + normalizeKey(c.author || '') + '|' + (c.source || '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    matchCandidates.push(c);
+  };
+
+  // --- 1) Vlastný katalóg (Supabase) — zoznam kandidátov ---
+  try {
+    const params = new URLSearchParams({ mode: 'list' });
+    if (book.isbn) params.set('isbn', book.isbn);
+    if (book.title) params.set('title', book.title);
+    if (book.author) params.set('author', book.author);
+    const res = await fetchWithTimeout('/.netlify/functions/catalog-lookup?' + params.toString(), 7000);
+    if (res.ok) {
+      const data = await res.json();
+      (data.candidates || []).forEach(c => addCand({
+        title: c.title, author: c.author, coverUrl: c.coverUrl,
+        description: c.description, publishYear: c.publishYear,
+        pageCount: c.pageCount, isbn: c.isbn, source: t('sourceCatalog'),
+      }));
+    }
+  } catch (e) { /* pokračuj na ostatné zdroje */ }
+
+  // --- 2) Open Library podľa názvu ---
+  // fetchFromOpenLibraryRaw vracia len obal/popis/rok/strany (nie názov/autora),
+  // takže názov a autora preberáme z aktuálnej knihy — OL kandidát je „tá istá
+  // kniha, ale s obálkou a popisom z Open Library".
+  try {
+    const ol = await fetchFromOpenLibraryRaw(book.title, book.author, null);
+    if (ol && (ol.coverUrl || ol.description)) addCand({
+      title: book.title, author: book.author, coverUrl: ol.coverUrl,
+      description: ol.description, publishYear: ol.publishYear,
+      pageCount: ol.pageCount, isbn: book.isbn || null, source: 'Open Library',
+    });
+  } catch (e) {}
+
+  // --- 3) Google Books (viac výsledkov) ---
+  try {
+    const gbKey = (localStorage.getItem(BOOKS_API_KEY_STORAGE) || '').trim();
+    const q = encodeURIComponent(`${book.title} ${book.author || ''}`.trim());
+    const gbUrl = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=5${gbKey ? '&key=' + gbKey : ''}`;
+    const res = await fetchWithTimeout(gbUrl, 6000);
+    if (res.ok) {
+      const data = await res.json();
+      (data.items || []).forEach(item => {
+        const info = item.volumeInfo || {};
+        const img = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || null;
+        const yearMatch = (info.publishedDate || '').match(/\d{4}/);
+        addCand({
+          title: info.title || null,
+          author: (info.authors || []).join(' / ') || null,
+          coverUrl: img ? img.replace('http://', 'https://') : null,
+          description: info.description || null,
+          publishYear: yearMatch ? parseInt(yearMatch[0], 10) : null,
+          pageCount: info.pageCount || null,
+          isbn: (info.industryIdentifiers || []).map(i => i.identifier)[0] || null,
+          source: 'Google Books',
+        });
+      });
+    }
+  } catch (e) {}
+
+  renderMatchCandidates();
+}
+
+// Pomocná normalizácia kľúča (bez diakritiky/interpunkcie) na deduplikáciu.
+function normalizeKey(s) {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function renderMatchCandidates() {
+  matchGrid.innerHTML = '';
+  if (!matchCandidates.length) {
+    matchStatus.textContent = t('matchNothing');
+    return;
+  }
+  matchStatus.textContent = '';
+  matchCandidates.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:10px; padding:10px; cursor:pointer; transition:border-color .15s;';
+    row.onmouseenter = () => row.style.borderColor = 'var(--accent)';
+    row.onmouseleave = () => row.style.borderColor = 'var(--line)';
+    const desc = c.description ? (c.description.length > 160 ? c.description.slice(0, 157) + '…' : c.description) : '';
+    row.innerHTML = `
+      ${c.coverUrl
+        ? `<img src="${escapeHtml(c.coverUrl)}" loading="lazy" style="width:52px; height:78px; object-fit:cover; border-radius:4px; background:var(--bg-sunk); flex-shrink:0;" onerror="this.style.visibility='hidden'">`
+        : `<div style="width:52px; height:78px; border-radius:4px; background:var(--bg-sunk); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:20px;">📖</div>`}
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:600; font-size:14px;">${escapeHtml(c.title || t('noTitle'))}</div>
+        <div style="color:var(--ink-soft); font-size:12.5px;">${escapeHtml(c.author || t('unknownAuthor'))}${c.publishYear ? ' · ' + c.publishYear : ''}${c.isbn ? ' · ISBN ' + escapeHtml(c.isbn) : ''}</div>
+        <div style="font-size:11px; color:var(--accent); margin-top:2px;">${escapeHtml(c.source || '')}</div>
+        ${desc ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px; line-height:1.35;">${escapeHtml(desc)}</div>` : ''}
+      </div>`;
+    row.addEventListener('click', () => applyMatchCandidate(idx));
+    matchGrid.appendChild(row);
+  });
+}
+
+function applyMatchCandidate(idx) {
+  const c = matchCandidates[idx];
+  const book = allBooks.find(b => b.id === currentModalBookId);
+  if (!c || !book) return;
+
+  // Prepíš celý záznam. Prázdne polia kandidáta nemažú existujúce dáta.
+  if (c.title) book.title = c.title;
+  if (c.author) book.author = c.author;
+  if (c.coverUrl) book.coverUrl = c.coverUrl;
+  if (c.description) book.description = c.description;
+  if (c.publishYear) book.publishYear = c.publishYear;
+  if (c.pageCount) book.pageCount = c.pageCount;
+  if (c.isbn) book.isbn = c.isbn;
+
+  saveBooks(true);
+  filterAndRenderBooks();
+  matchModal.style.display = 'none';
+
+  // Znovu otvor detail s aktualizovanými dátami.
+  if (typeof handleDetailClick === 'function') handleDetailClick(book.id);
+  showToast(t('matchApplied'), 'success', 2500);
+}
+
 async function fetchAllGalleryCovers(book) {
   const sources = [];
 
@@ -3807,7 +3956,12 @@ modalReadBtn.addEventListener('click', () => {
 modalEditBtn.addEventListener('click', enterEditMode);
 modalCancelEditBtn.addEventListener('click', exitEditMode);
 modalSaveBtn.addEventListener('click', saveEditedBook);
-modalRescanBtn.addEventListener('click', rescanFromModal);
+modalRescanBtn.addEventListener('click', openMatchModal);
+
+matchCloseBtn.addEventListener('click', () => { matchModal.style.display = 'none'; });
+matchModal.addEventListener('click', (e) => {
+  if (e.target === matchModal) matchModal.style.display = 'none';
+});
 
 function closeMoreMenu() {
   modalMoreMenu.style.display = 'none';

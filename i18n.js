@@ -67,7 +67,7 @@ const UI_STRINGS = {
     rescanBtnShort: "Meta",
     translateBtnShort: "Preložiť",
     closeBtnShort: "Zavrieť",
-    rescanBtn: "🔄 Hľadať znova",
+    rescanBtn: "Vybrať správnu knihu z databáz",
     moreBtn: "⋯ Viac",
     closeBtn: "Zavrieť",
     saveChangesBtn: "Uložiť zmeny",
@@ -121,6 +121,16 @@ const UI_STRINGS = {
     cancelBtn: "Zrušiť",
     confirmDangerInstruction: "Pre potvrdenie napíš slovo",
     confirmBtn: "Potvrdiť",
+
+    // === Match metadata (výber správnej knihy) ===
+    matchBtn: "Vybrať správnu knihu",
+    matchBtnShort: "Vybrať",
+    matchModalTitle: "Vybrať správnu knihu",
+    matchModalHint: "Klikni na správny záznam — prepíše názov, autora, rok, popis aj obálku tejto knihy.",
+    matchSearching: "Hľadám kandidátov v katalógu a databázach…",
+    matchNothing: "Nenašli sa žiadni kandidáti. Skús upraviť názov alebo autora a spustiť znova.",
+    matchApplied: "Metadáta knihy aktualizované.",
+    sourceCatalog: "Katalóg",
 
     // === Doplnene kluce (JS-generovane retazce) ===
     genre_worldClassics: "Svetová klasika",
@@ -444,7 +454,7 @@ const UI_STRINGS = {
     rescanBtnShort: "Meta",
     translateBtnShort: "Translate",
     closeBtnShort: "Close",
-    rescanBtn: "🔄 Search again",
+    rescanBtn: "Pick the correct book from databases",
     moreBtn: "⋯ More",
     closeBtn: "Close",
     saveChangesBtn: "Save changes",
@@ -498,6 +508,16 @@ const UI_STRINGS = {
     cancelBtn: "Cancel",
     confirmDangerInstruction: "To confirm, type the word",
     confirmBtn: "Confirm",
+
+    // === Match metadata (pick the correct book) ===
+    matchBtn: "Pick the correct book",
+    matchBtnShort: "Pick",
+    matchModalTitle: "Pick the correct book",
+    matchModalHint: "Click the correct record — it overwrites this book's title, author, year, description and cover.",
+    matchSearching: "Searching for candidates in the catalog and databases…",
+    matchNothing: "No candidates found. Try editing the title or author and run again.",
+    matchApplied: "Book metadata updated.",
+    sourceCatalog: "Catalog",
 
     // === Added keys (JS-generated strings) ===
     genre_worldClassics: "World classics",
