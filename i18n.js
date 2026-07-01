@@ -135,6 +135,8 @@ const UI_STRINGS = {
     // === Tiché doplnenie z katalógu ===
     enrichedFromCatalog: "Doplnené z katalógu: {fields}.",
     periodicScanFilled: "Katalóg doplnil údaje pre {count} kníh.",
+    sourceCatalogLabel: "Môj katalóg",
+    sourceCatalogNote: "(primárny)",
 
     // === Doplnene kluce (JS-generovane retazce) ===
     genre_worldClassics: "Svetová klasika",
@@ -526,6 +528,8 @@ const UI_STRINGS = {
     // === Silent enrichment from catalog ===
     enrichedFromCatalog: "Filled in from the catalog: {fields}.",
     periodicScanFilled: "The catalog filled in data for {count} books.",
+    sourceCatalogLabel: "My catalog",
+    sourceCatalogNote: "(primary)",
 
     // === Added keys (JS-generated strings) ===
     genre_worldClassics: "World classics",

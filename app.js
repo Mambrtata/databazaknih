@@ -275,6 +275,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   phaseIsbn = document.getElementById('phaseIsbn'),
   phaseMeta = document.getElementById('phaseMeta'),
   stopFetchBtn = document.getElementById('stopFetchBtn'),
+  sourceCatalogCheckbox = document.getElementById('sourceCatalog'),
   sourceOpenLibraryCheckbox = document.getElementById('sourceOpenLibrary'),
   sourceGoogleBooksCheckbox = document.getElementById('sourceGoogleBooks'),
   sourceWikidataCheckbox = document.getElementById('sourceWikidata'),
@@ -370,6 +371,7 @@ let fetchShouldStop = false; // nastaví sa na true po kliknutí na "Zastaviť"
 // v praxi nepoužiteľným pre hromadné dopĺňanie, kým si ho používateľ sám nezapne.
 function getEnabledSources() {
   return {
+    catalog: sourceCatalogCheckbox ? sourceCatalogCheckbox.checked : true,
     openLibrary: sourceOpenLibraryCheckbox ? sourceOpenLibraryCheckbox.checked : true,
     googleBooks: sourceGoogleBooksCheckbox ? sourceGoogleBooksCheckbox.checked : false,
     wikidata: sourceWikidataCheckbox ? sourceWikidataCheckbox.checked : true
@@ -954,7 +956,8 @@ function authorMatches(ourAuthor, resultAuthors) {
 async function fetchBookDetails(title, author, originalTitle, book, enabledSources, attempt = 0, titleFallbackUsed = false) {
   if (!title) return { coverUrl: null, description: null, networkError: false, sources: {} };
 
-  const enabled = enabledSources || { openLibrary: true, googleBooks: false, wikidata: true };
+  const enabled = enabledSources || { catalog: true, openLibrary: true, googleBooks: false, wikidata: true };
+  if (enabled.catalog === undefined) enabled.catalog = true;
 
   // Per-zdroj stav danej knihy — ak je už zaznamenané, že zdroj bol vyskúšaný
   // a nič nenašiel, preskočíme ho (šetrí to API volania pri opakovanom behu).
@@ -974,11 +977,18 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   const isbn = book && book.isbn ? book.isbn : null;
 
   // ---- 0) Vlastný katalóg (Supabase) — PRVÝ zdroj, najlepšie pokrytie
-  // slovenských/českých kníh. Pýta sa podľa ISBN (ak je), inak podľa názvu
-  // a autora. Keď katalóg knihu nemá, plynulo pokračujeme na Open Library.
-  if (sources.catalog !== 'found' && sources.catalog !== 'empty') {
-    const cat = await fetchFromCatalog({ isbn, title: searchTitle, author });
-    sources.catalog = cat && cat.coverUrl ? 'found' : 'empty';
+  // slovenských/českých kníh. Katalóg sa pýtame VŽDY (nikdy sa nepreskakuje
+  // cachovaním), lebo databáza priebežne pribúda — kniha, ktorá tam dnes
+  // nebola, tam zajtra môže byť. Skúšame slovenský názov (title) prioritne,
+  // lebo katalóg má SK/CZ názvy; originálny/EN názov až ako druhý pokus.
+  if (enabled.catalog) {
+    // 1. pokus: slovenský názov (to má katalóg uložené)
+    let cat = await fetchFromCatalog({ isbn, title, author });
+    // 2. pokus: ak SK názov nič nedal a máme originálny/EN názov, skús ten
+    if (!cat && originalTitle && originalTitle.trim() && originalTitle.trim() !== title) {
+      cat = await fetchFromCatalog({ isbn, title: originalTitle.trim(), author });
+    }
+    sources.catalog = cat ? 'found' : 'empty';
     if (cat) {
       if (cat.coverUrl) coverUrl = cat.coverUrl;
       if (cat.description) description = cat.description;
@@ -987,6 +997,8 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
     }
   }
 
+  // Vrátime sa hneď LEN ak katalóg dal obálku — inak pokračujeme na ďalšie
+  // zdroje, aby sa chýbajúca obálka doplnila (popis/rok z katalógu si držíme).
   if (coverUrl) {
     return { coverUrl, description: description || t('descNotFound'), publishYear, pageCount, networkError: false, sources };
   }
@@ -1822,7 +1834,7 @@ async function fetchAllMissingDetails() {
   if (missing.length === 0) return;
 
   const enabledSources = getEnabledSources();
-  if (!enabledSources.openLibrary && !enabledSources.googleBooks && !enabledSources.wikidata) {
+  if (!enabledSources.catalog && !enabledSources.openLibrary && !enabledSources.googleBooks && !enabledSources.wikidata) {
     errorMessage.textContent = t('pickAtLeastOneSource');
     return;
   }
