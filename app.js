@@ -1729,7 +1729,7 @@ async function searchViaGeminiWeb(book) {
   const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || t('unknown')}" (slovenské/české vydanie, žáner: ${book.genre || t('unknown')}).
 Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, martinus.sk, alebo stránky vydavateľstiev.
 Ak nájdeš obal knihy, získaj PRIAMU URL obrázka (končiacu na .jpg, .png, .webp) — nie URL stránky, ale samotného obrázka.
-Stručne zhrň aj dej vlastnými slovami v slovenčine (2-4 vety).
+Zhrň dej knihy vlastnými slovami v slovenčine (6-8 viet — vystihni zápletku, hlavné postavy a atmosféru, no neprezrádzaj koniec).
 
 Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
 {"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "description": "slovensky popis alebo null"}`;
@@ -1794,7 +1794,7 @@ async function translateDescription(book) {
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const systemPrompt = `You are a helpful assistant that writes short book summaries in ${lang.name} for a personal library catalog.`;
-  const userQuery = `Na základe nasledujúceho cudzojazyčného popisu knihy "${book.title}" od autora "${book.author || t('unknown')}" napíš krátku, vlastnými slovami sformulovanú anotáciu v jazyku: ${lang.name} (2-4 vety, bez doslovného prekladu vety po vete). Odpovedz IBA samotným textom anotácie v jazyku ${lang.name}, bez úvodzoviek, bez nadpisu, bez ďalšieho komentára.\n\nPôvodný popis:\n${book.description}`;
+  const userQuery = `Na základe nasledujúceho cudzojazyčného popisu knihy "${book.title}" od autora "${book.author || t('unknown')}" napíš vlastnými slovami sformulovanú anotáciu v jazyku: ${lang.name} (6-8 viet, bez doslovného prekladu vety po vete — vystihni zápletku, hlavné postavy a atmosféru). Odpovedz IBA samotným textom anotácie v jazyku ${lang.name}, bez úvodzoviek, bez nadpisu, bez ďalšieho komentára.\n\nPôvodný popis:\n${book.description}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -3601,10 +3601,40 @@ function normalizeKey(s) {
 
 function renderMatchCandidates() {
   matchGrid.innerHTML = '';
+
+  // Hore ukáž AKTUÁLNY záznam knihy, nech má používateľ s čím porovnávať.
+  const cur = allBooks.find(b => b.id === currentModalBookId);
+  if (cur) {
+    const curDesc = cur.description && cur.description !== t('descNotFound')
+      ? (cur.description.length > 160 ? cur.description.slice(0, 157) + '…' : cur.description) : '';
+    const curBox = document.createElement('div');
+    curBox.style.cssText = 'border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:6px; background:var(--bg-sunk);';
+    curBox.innerHTML = `
+      <div style="font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-soft); margin-bottom:8px;">${t('matchCurrentLabel')}</div>
+      <div style="display:flex; gap:12px; align-items:flex-start;">
+        ${cur.coverUrl
+          ? `<img src="${escapeHtml(cur.coverUrl)}" style="width:48px; height:72px; object-fit:cover; border-radius:4px; background:var(--card); flex-shrink:0;" onerror="this.style.visibility='hidden'">`
+          : `<div style="width:48px; height:72px; border-radius:4px; background:var(--card); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px;">📖</div>`}
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:14px;">${escapeHtml(cur.title || t('noTitle'))}</div>
+          <div style="color:var(--ink-soft); font-size:12.5px;">${escapeHtml(cur.author || t('unknownAuthor'))}${cur.publishYear ? ' · ' + cur.publishYear : ''}${cur.isbn ? ' · ISBN ' + escapeHtml(cur.isbn) : ''}</div>
+          <div style="font-size:11px; color:var(--ink-soft); margin-top:3px;">${cur.coverUrl ? '🖼️' : '— bez obálky'} · ${curDesc ? '📝 má popis' : '— bez popisu'}${cur.pageCount ? ' · ' + cur.pageCount + ' s.' : ''}</div>
+          ${curDesc ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px; line-height:1.35;">${escapeHtml(curDesc)}</div>` : ''}
+        </div>
+      </div>`;
+    matchGrid.appendChild(curBox);
+  }
+
   if (!matchCandidates.length) {
     matchStatus.textContent = t('matchNothing');
     return;
   }
+  // Nadpis sekcie kandidátov
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--accent); margin:10px 0 2px;';
+  hdr.textContent = t('matchCandidatesLabel');
+  matchGrid.appendChild(hdr);
+
   matchStatus.textContent = '';
   matchCandidates.forEach((c, idx) => {
     const row = document.createElement('div');
@@ -3652,6 +3682,24 @@ function applyMatchCandidate(idx) {
 
 async function fetchAllGalleryCovers(book) {
   const sources = [];
+
+  // Vlastný katalóg (Supabase) — PRVÝ zdroj obálok, má reálne SK/CZ obálky.
+  try {
+    const params = new URLSearchParams({ mode: 'list' });
+    if (book.isbn) params.set('isbn', book.isbn);
+    if (book.title) params.set('title', book.title);
+    if (book.author) params.set('author', book.author);
+    const res = await fetchWithTimeout('/.netlify/functions/catalog-lookup?' + params.toString(), 6000);
+    if (res.ok) {
+      const data = await res.json();
+      (data.candidates || []).forEach(c => {
+        if (c.coverUrl && !sources.find(s => s.url === c.coverUrl)) {
+          const yr = c.publishYear ? ` ${c.publishYear}` : '';
+          sources.push({ url: c.coverUrl, source: `${t('sourceCatalog')}${yr}` });
+        }
+      });
+    }
+  } catch(e) {}
 
   // Open Library podľa ISBN
   if (book.isbn) {
