@@ -967,11 +967,30 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
   let publishYear = null;
   let pageCount = null;
 
-  // ---- 0) Open Library podľa ISBN — ak ho kniha má, je to najpresnejší
+  const isbn = book && book.isbn ? book.isbn : null;
+
+  // ---- 0) Vlastný katalóg (Supabase) — PRVÝ zdroj, najlepšie pokrytie
+  // slovenských/českých kníh. Pýta sa podľa ISBN (ak je), inak podľa názvu
+  // a autora. Keď katalóg knihu nemá, plynulo pokračujeme na Open Library.
+  if (sources.catalog !== 'found' && sources.catalog !== 'empty') {
+    const cat = await fetchFromCatalog({ isbn, title: searchTitle, author });
+    sources.catalog = cat && cat.coverUrl ? 'found' : 'empty';
+    if (cat) {
+      if (cat.coverUrl) coverUrl = cat.coverUrl;
+      if (cat.description) description = cat.description;
+      if (cat.publishYear) publishYear = cat.publishYear;
+      if (cat.pageCount) pageCount = cat.pageCount;
+    }
+  }
+
+  if (coverUrl) {
+    return { coverUrl, description: description || t('descNotFound'), publishYear, pageCount, networkError: false, sources };
+  }
+
+  // ---- 0b) Open Library podľa ISBN — ak ho kniha má, je to najpresnejší
   // a najspoľahlivejší spôsob (jednoznačná identifikácia konkrétneho vydania,
   // žiadna kontrola zhody autora nie je ani potrebná). Skúša sa pred
   // fulltextovým vyhľadávaním podľa názvu.
-  const isbn = book && book.isbn ? book.isbn : null;
   if (isbn && enabled.openLibrary && sources.openLibraryIsbn !== 'found' && sources.openLibraryIsbn !== 'empty') {
     const olIsbn = await fetchFromOpenLibraryByIsbn(isbn);
     sources.openLibraryIsbn = olIsbn.coverUrl ? 'found' : 'empty';
@@ -2961,8 +2980,53 @@ function isbnYearMatches(book, newPublishYear) {
   return book.publishYear === newPublishYear;
 }
 
+// ============================================================
+// Vlastný katalóg (Supabase cez Netlify funkciu) — PRVÝ zdroj metadát.
+// Pýta sa cez /.netlify/functions/catalog-lookup, ktorá drží Supabase
+// kľúč na serveri (nikdy nie je v prehliadači). Keď katalóg knihu nemá,
+// vráti null a appka plynulo pokračuje na Open Library / Google Books.
+// Pri lokálnom vývoji bez Netlify funkcia neexistuje — vtedy len vráti
+// null (žiadna chyba), takže appka funguje aj bez katalógu.
+// ============================================================
+async function fetchFromCatalog({ isbn, title, author } = {}) {
+  const params = new URLSearchParams();
+  if (isbn) params.set('isbn', isbn);
+  if (title) params.set('title', title);
+  if (author) params.set('author', author);
+  if (![...params.keys()].length) return null;
+
+  try {
+    const res = await fetchWithTimeout('/.netlify/functions/catalog-lookup?' + params.toString(), 6000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.found ? data.book : null;
+  } catch (e) {
+    // Ticho — katalóg je len prvý pokus, ostatné zdroje bežia ďalej.
+    return null;
+  }
+}
+
 async function lookupBookByIsbn(isbn) {
   let title = null, author = null, coverUrl = null, description = null, publishYear = null, pageCount = null, language = null;
+
+  // ---- 0) Vlastný katalóg (Supabase) — najprv, najlepšie pokrytie SK/CZ ----
+  try {
+    const c = await fetchFromCatalog({ isbn });
+    if (c) {
+      title = c.title || null;
+      author = c.author || null;
+      coverUrl = c.coverUrl || null;
+      description = c.description || null;
+      publishYear = c.publishYear || null;
+      pageCount = c.pageCount || null;
+      language = c.language || null;
+    }
+  } catch (e) { /* ignoruj, pokračuj na OL/Google */ }
+
+  // Ak katalóg vrátil aspoň názov aj obálku, netreba ísť ďalej.
+  if (title && coverUrl) {
+    return { title, author, coverUrl, description, publishYear, pageCount, language };
+  }
 
   try {
     const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`;
@@ -2971,14 +3035,18 @@ async function lookupBookByIsbn(isbn) {
       const data = await res.json();
       const book = data['ISBN:' + isbn];
       if (book) {
-        title = book.title || null;
-        author = (book.authors || []).map(a => a.name).join(' / ') || null;
-        coverUrl = book.cover?.large || book.cover?.medium || null;
-        description = typeof book.notes === 'string' ? book.notes : (book.excerpts?.[0]?.text || null);
-        const yearMatch = (book.publish_date || '').match(/\d{4}/);
-        publishYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
-        pageCount = book.number_of_pages || null;
-        language = book.languages?.[0]?.key?.split('/').pop() || null;
+        // Dopĺňame len to, čo katalóg (zdroj 0) nenašiel — nikdy neprepisujeme
+        // už získané hodnoty z vlastného katalógu.
+        if (!title) title = book.title || null;
+        if (!author) author = (book.authors || []).map(a => a.name).join(' / ') || null;
+        if (!coverUrl) coverUrl = book.cover?.large || book.cover?.medium || null;
+        if (!description) description = typeof book.notes === 'string' ? book.notes : (book.excerpts?.[0]?.text || null);
+        if (!publishYear) {
+          const yearMatch = (book.publish_date || '').match(/\d{4}/);
+          publishYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+        }
+        if (!pageCount) pageCount = book.number_of_pages || null;
+        if (!language) language = book.languages?.[0]?.key?.split('/').pop() || null;
       }
     }
   } catch (e) {
