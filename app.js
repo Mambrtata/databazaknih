@@ -3432,21 +3432,33 @@ function openCoverGallery() {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
 
-  // Resetuj len ak sa zmenila kniha
-  if (galleryCoverBookId !== currentModalBookId) {
-    galleryCoverBookId = currentModalBookId;
-    galleryCovers = book.coverUrl ? [{ url: book.coverUrl, source: 'Aktuálny', generated: false }] : [];
-  }
+  // Vždy začni s čerstvým „aktuálnym" obalom (book.coverUrl), nie zo starej
+  // cache — inak by po zmene obálky ostal v galérii neaktuálny „Aktuálny".
+  galleryCoverBookId = currentModalBookId;
+  galleryCovers = book.coverUrl
+    ? [{ url: book.coverUrl, source: 'Aktuálny', generated: false }]
+    : [];
 
   coverGalleryGrid.innerHTML = '';
-  coverGalleryStatus.textContent = galleryCovers.length > 0
-    ? t('clickCoverToSelect')
-    : t('noCoverGenerate');
   coverGalleryModal.style.display = 'flex';
   coverGalleryGenerateBtn.disabled = false;
   coverGalleryGenerateBtn.textContent = t('generateAiCover');
   coverGalleryUrlBox.style.display = 'none';
   renderGalleryCovers();
+
+  // Automaticky dohľadaj VŠETKY dostupné obálky (katalóg, Open Library,
+  // Google Books, Wikidata) — nech si používateľ vyberá z viacerých, nielen
+  // z aktuálnej. Beží na pozadí, výsledky sa dopĺňajú priebežne.
+  coverGalleryStatus.textContent = t('searchingInDbs');
+  fetchAllGalleryCovers(book).then(() => {
+    coverGalleryStatus.textContent = galleryCovers.length > 0
+      ? t('clickCoverToSelect')
+      : t('noCoverGenerate');
+  }).catch(() => {
+    coverGalleryStatus.textContent = galleryCovers.length > 0
+      ? t('clickCoverToSelect')
+      : t('noCoverGenerate');
+  });
 }
 
 function renderGalleryCovers() {
