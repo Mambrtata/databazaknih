@@ -40,15 +40,10 @@
     --danger: #D26B62;
     --danger-soft: #3A2624;
   }
-  /* Tmavé scrollbary v dark mode (napr. zoznam autorov, sidebar) */
-  [data-theme="dark"] #authorList::-webkit-scrollbar,
-  [data-theme="dark"] aside.sidebar::-webkit-scrollbar{width:8px;}
-  [data-theme="dark"] #authorList::-webkit-scrollbar-track,
-  [data-theme="dark"] aside.sidebar::-webkit-scrollbar-track{background:var(--bg-sunk);}
-  [data-theme="dark"] #authorList::-webkit-scrollbar-thumb,
-  [data-theme="dark"] aside.sidebar::-webkit-scrollbar-thumb{background:var(--line-strong); border-radius:4px;}
-  [data-theme="dark"] #authorList,
-  [data-theme="dark"] aside.sidebar{scrollbar-color:var(--line-strong) var(--bg-sunk); scrollbar-width:thin;}
+  /* Tmavý scrollbar pre prípadné rolovacie zoznamy v dark mode */
+  [data-theme="dark"] ::-webkit-scrollbar{width:8px;}
+  [data-theme="dark"] ::-webkit-scrollbar-track{background:var(--bg-sunk);}
+  [data-theme="dark"] ::-webkit-scrollbar-thumb{background:var(--line-strong); border-radius:4px;}
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
@@ -88,7 +83,7 @@
   }
 
   .layout{display:flex; gap:40px; align-items:flex-start;}
-  aside.sidebar{width:264px; flex-shrink:0; position:sticky; top:32px; max-height:calc(100vh - 48px); overflow-y:auto;}
+  aside.sidebar{width:264px; flex-shrink:0; position:sticky; top:32px;}
   main.content{flex:1; min-width:0;}
 
   .mobile-categories-toggle{display:none;}
@@ -632,7 +627,7 @@
               style="width:100%; padding:7px 10px 7px 30px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--card); color:var(--ink); box-sizing:border-box;">
             <svg style="position:absolute; left:8px; top:50%; transform:translateY(-50%); pointer-events:none; opacity:0.4;" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
           </div>
-          <div id="authorList" style="margin-top:6px; max-height:260px; overflow-y:auto;"></div>
+          <div id="authorList" style="margin-top:6px;"></div>
         </div>
 
         <div class="api-box" id="migratePanel" style="display:none; border:1px solid #D9A441; background:#FBF3E3; border-radius:10px; padding:14px; margin-top:0;">

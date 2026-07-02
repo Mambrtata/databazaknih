@@ -4705,8 +4705,14 @@ if (quoteAddBtn) {
     const sel = (window.getSelection && window.getSelection().toString().trim()) || '';
     const chosen = sel || quoteText.textContent.trim();
     if (chosen) {
-      const quote = '"' + chosen + '"';
-      book.notes = book.notes ? (book.notes.trimEnd() + '\n' + quote) : quote;
+      // Citát odlíšime: predpona „› " a voľný riadok zhora aj zdola,
+      // nech vizuálne vystúpi z okolitých poznámok.
+      const quote = '› "' + chosen.replace(/\n+/g, ' ').trim() + '"';
+      if (book.notes && book.notes.trim()) {
+        book.notes = book.notes.trimEnd() + '\n\n' + quote + '\n';
+      } else {
+        book.notes = quote + '\n';
+      }
       saveBooks(true);
       if (modalNotes) modalNotes.value = book.notes;
     }
