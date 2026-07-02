@@ -11,7 +11,7 @@ const UI_LANGUAGE_STORAGE = "domaca_kniznica_ui_language";
 
 const UI_STRINGS = {
   sk: {
-    appTitle: "Knižnica",
+    appTitle: "EXLIBRI",
     appSubtitle: "osobný katalóg kníh — odfoť, zapíš, prelistuj",
     syncShared: "☁️ zdieľané",
     syncLocalOnly: "⚠️ len lokálne",
@@ -411,14 +411,14 @@ const UI_STRINGS = {
     generatingBtn: "⏳ Generujem…",
     stoppingBtn: "⏹ Zastavujem…",
     // Verejný náhľad (verejna.html)
-    publicPageTitle: "Knižnica — verejný náhľad",
+    publicPageTitle: "EXLIBRI — verejný náhľad",
     publicMissingId: "Chýba odkaz na knižnicu (parameter \"id\" v URL).",
     publicNotAvailable: "Táto knižnica nie je verejne dostupná.",
     publicLoadFail: "Nepodarilo sa načítať knižnicu. Skús to znova neskôr.",
     publicEmpty: "Táto knižnica je zatiaľ prázdna.",
   },
   en: {
-    appTitle: "Library",
+    appTitle: "EXLIBRI",
     appSubtitle: "personal book catalog — snap, log, browse",
     syncShared: "☁️ synced",
     syncLocalOnly: "⚠️ local only",
@@ -816,7 +816,7 @@ const UI_STRINGS = {
     generatingBtn: "⏳ Generating…",
     stoppingBtn: "⏹ Stopping…",
     // Public view (verejna.html)
-    publicPageTitle: "Library — public view",
+    publicPageTitle: "EXLIBRI — public view",
     publicMissingId: "The library link is missing (the \"id\" parameter in the URL).",
     publicNotAvailable: "This library is not publicly available.",
     publicLoadFail: "Could not load the library. Please try again later.",
@@ -825,7 +825,12 @@ const UI_STRINGS = {
 };
 
 function getUiLanguage() {
-  return localStorage.getItem(UI_LANGUAGE_STORAGE) || 'sk';
+  const saved = localStorage.getItem(UI_LANGUAGE_STORAGE);
+  if (saved) return saved;
+  // Nový používateľ — odhadni jazyk rozhrania podľa prehliadača.
+  // Rozhranie je lokalizované len do SK a EN, takže 'en*' → en, inak sk.
+  const nav = (navigator.language || navigator.userLanguage || 'sk').toLowerCase();
+  return nav.startsWith('en') ? 'en' : 'sk';
 }
 
 function setUiLanguage(code) {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Knižnica</title>
+<title>EXLIBRI</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -389,6 +389,13 @@
     font-family:'Inter',sans-serif; font-size:12px; opacity:0.55; letter-spacing:0.03em; line-height:1.3;
     color:#1C1B19; overflow-wrap:break-word; word-break:break-word;
   }
+  .shelf-spine .spine-read-mark{
+    position:absolute; bottom:4px; left:50%; transform:translateX(-50%);
+    width:15px; height:15px; border-radius:50%;
+    background:#2D7D52; color:#fff; font-size:10px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:2; pointer-events:none;
+  }
 
   .book-spine{
     width:100%; height:100%; display:flex; flex-direction:column;
@@ -424,6 +431,17 @@
   /* Obal — väčší, zaberá celú výšku */
   .modal-cover-wrap{position:relative; width:34%; min-width:180px; flex-shrink:0; background:var(--bg-sunk);}
   .modal-cover{width:100%; height:100%; object-fit:cover; display:block;}
+  .ai-badge{
+    display:inline-flex; align-items:center; gap:3px;
+    font-size:10px; font-weight:700; letter-spacing:0.04em;
+    background:linear-gradient(135deg,#7C3AED,#2563EB); color:#fff;
+    padding:2px 7px; border-radius:20px; line-height:1.4;
+  }
+  .ai-badge-cover{
+    position:absolute; top:8px; left:8px; z-index:3;
+    box-shadow:0 1px 4px rgba(0,0,0,0.3);
+  }
+  .ai-badge-text{ margin-top:6px; }
   @media (max-width:600px){.modal-cover-wrap{width:100%; height:260px;}}
   .modal-cover-pick-btn{
     position:absolute; inset:0; width:100%; height:100%;
@@ -538,7 +556,7 @@
 
 <!-- Prihlasovacia obrazovka — viditeľná, kým sa používateľ neprihlási -->
 <div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:18px; padding:24px; text-align:center;">
-  <h1 style="font-family:'Fraunces',serif; font-size:36px; font-weight:600; margin:0;"><span data-i18n="appTitle">Knižnica</span><span style="color:var(--accent);">.</span></h1>
+  <h1 style="font-family:'Fraunces',serif; font-size:36px; font-weight:600; margin:0;"><span data-i18n="appTitle">EXLIBRI</span><span style="color:var(--accent);">.</span></h1>
   <p data-i18n="loginScreenSubtitle" style="color:var(--ink-soft); font-size:14px; margin:0 0 10px; max-width:360px;">Osobný katalóg kníh — prihlás sa alebo si vytvor účet, aby si videl svoju knižnicu.</p>
   <button id="loginBtn" data-i18n="loginBtn" class="btn btn-primary" style="padding:12px 28px;">Prihlásiť sa / Registrovať</button>
   <p id="loginStatus" style="font-size:13px; color:var(--ink-soft); margin-top:4px;"></p>
@@ -548,7 +566,7 @@
 
   <header class="top">
     <div class="title-block">
-      <h1><span data-i18n="appTitle">Knižnica</span><span class="dot">.</span></h1>
+      <h1><span data-i18n="appTitle">EXLIBRI</span><span class="dot">.</span></h1>
       <p class="subtitle" data-i18n="appSubtitle">osobný katalóg kníh — odfoť, zapíš, prelistuj</p>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
@@ -759,6 +777,7 @@
   <div class="modal-card">
     <div id="modalCoverWrap" class="modal-cover-wrap">
       <img id="modalCover" class="modal-cover" alt="">
+      <span id="modalCoverAiBadge" class="ai-badge ai-badge-cover" style="display:none;">AI</span>
       <button id="modalCoverPickBtn" class="modal-cover-pick-btn" style="display:none;" title="Vybrať obal">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
         <span style="font-size:10px; font-weight:600; margin-top:3px;">Obal</span>
@@ -781,6 +800,7 @@
           <div id="modalDescriptionContainer">
             <div id="modalLoader" class="modal-loader" style="display:none;"></div>
             <p class="modal-desc" id="modalDescription"></p>
+            <span id="modalDescAiBadge" class="ai-badge ai-badge-text" style="display:none;">✨ AI</span>
           </div>
           <p id="modalErrorMessage" style="font-size:12.5px; color:var(--danger); margin:8px 0 0; line-height:1.5;"></p>
 

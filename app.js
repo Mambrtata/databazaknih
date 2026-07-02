@@ -102,7 +102,14 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 function getUserLanguage() {
-  return localStorage.getItem(LANGUAGE_STORAGE) || 'sk';
+  const saved = localStorage.getItem(LANGUAGE_STORAGE);
+  if (saved) return saved;
+  // Nový používateľ (žiadna uložená voľba) — odhadni podľa prehliadača.
+  // 'en*' → angličtina, čeština → 'cs', inak predvolene slovenčina.
+  const nav = (navigator.language || navigator.userLanguage || 'sk').toLowerCase();
+  if (nav.startsWith('en')) return 'en';
+  if (nav.startsWith('cs')) return 'cs';
+  return 'sk';
 }
 
 // Mapuje jazyk knižnice (2-písmenový kód z SUPPORTED_LANGUAGES) na zoznam
@@ -309,6 +316,8 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   aiConfirmSaveBtn = document.getElementById('aiConfirmSaveBtn'),
   aiConfirmCancelBtn = document.getElementById('aiConfirmCancelBtn'),
   aiConfirmCloseBtn = document.getElementById('aiConfirmCloseBtn'),
+  modalCoverAiBadge = document.getElementById('modalCoverAiBadge'),
+  modalDescAiBadge = document.getElementById('modalDescAiBadge'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
   modalEditBtn = document.getElementById('modalEditBtn'),
@@ -1775,6 +1784,32 @@ async function bulkFindMeta() {
 // stručnej syntéze (nie doslovnú citáciu zdrojových stránok).
 // ============================================================
 
+// R11 — Volanie Gemini API s automatickým opakovaním pri preťažení.
+// Chyby 503 („overloaded"/„high demand") a 429 (rate limit) sú zvyčajne
+// dočasné — skúsime ešte 1-2x po krátkej pauze, než to vzdáme. Ostatné
+// chyby (403, 400…) vrátime hneď, opakovanie by nepomohlo.
+async function geminiFetchRetry(apiUrl, payload, maxAttempts = 3) {
+  let lastResp = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (response.ok) return response;
+    lastResp = response;
+    // Opakuj len pri dočasných chybách preťaženia.
+    if (response.status === 503 || response.status === 429) {
+      if (attempt < maxAttempts - 1) {
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); // 1.5s, 3s
+        continue;
+      }
+    }
+    break; // iná chyba alebo posledný pokus
+  }
+  return lastResp;
+}
+
 async function searchViaGeminiWeb(book) {
   const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
   if (!apiKey) {
@@ -1785,18 +1820,22 @@ async function searchViaGeminiWeb(book) {
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const searchTerm = book.originalTitle ? `${book.title} (${book.originalTitle})` : book.title;
+  const lang = getLanguageInfo(getUserLanguage());
   const systemPrompt = "You are a helpful research assistant for a personal book catalog. Use web search to find publicly available information about the specific book edition described, then respond with structured JSON only.";
   // Poznámka: Gemini cez grounding často nevie spoľahlivo skonštruovať priamu
   // funkčnú URL obrázka obalu (vidí len text výsledkov vyhľadávania, nie
   // skutočné obrázkové súbory) — preto žiadame radšej odkaz na stránku
   // (antikvariát/databáza), odkiaľ si obal vieš stiahnuť a nahrať ručne.
-  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || t('unknown')}" (slovenské/české vydanie, žáner: ${book.genre || t('unknown')}).
-Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, martinus.sk, alebo stránky vydavateľstiev.
+  // Popis generujeme v jazyku knižnice (lang.name) — EN používateľ dostane
+  // anglický popis. Do zdieľanej SK/CZ DB sa aj tak nahrá len SK/CZ text
+  // (kontrola looksSlovakOrCzech pri prispievaní), takže EN popis ostane lokálny.
+  const userQuery = `Nájdi informácie o knihe "${searchTerm}" od autora "${book.author || t('unknown')}" (žáner: ${book.genre || t('unknown')}).
+Hľadaj na stránkach ako databazeknih.cz, cbdb.cz, knihy.abz.cz, martinus.sk, goodreads.com, alebo stránky vydavateľstiev.
 Ak nájdeš obal knihy, získaj PRIAMU URL obrázka (končiacu na .jpg, .png, .webp) — nie URL stránky, ale samotného obrázka.
-Zhrň dej knihy vlastnými slovami v slovenčine (6-8 viet — vystihni zápletku, hlavné postavy a atmosféru, no neprezrádzaj koniec).
+Zhrň dej knihy vlastnými slovami v jazyku ${lang.name} (6-8 viet — vystihni zápletku, hlavné postavy a atmosféru, no neprezrádzaj koniec).
 
 Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
-{"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "description": "slovensky popis alebo null"}`;
+{"coverImageUrl": "https://...priama url obrazka.jpg alebo null", "description": "popis v jazyku ${lang.name} alebo null"}`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
@@ -1805,11 +1844,7 @@ Odpovedz IBA validným JSON objektom, bez markdown, bez úvodzoviek:
   };
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    const response = await geminiFetchRetry(apiUrl, payload);
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => null);
@@ -1866,11 +1901,7 @@ async function translateDescription(book) {
   };
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    const response = await geminiFetchRetry(apiUrl, payload);
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => null);
@@ -2036,8 +2067,8 @@ function filterAndRenderBooks() {
 // vnútri každej žánrovej sekcie (poradie sekcií samotných zostáva abecedné).
 function sortBooks(books, sortKey) {
   const sorted = [...books];
-  const byTitle = (a, b) => a.title.localeCompare(b.title, 'sk', { sensitivity: 'base' });
-  const byAuthor = (a, b) => (a.author || '').localeCompare(b.author || '', 'sk', { sensitivity: 'base' });
+  const byTitle = (a, b) => a.title.localeCompare(b.title, getUiLanguage(), { sensitivity: 'base' });
+  const byAuthor = (a, b) => (a.author || '').localeCompare(b.author || '', getUiLanguage(), { sensitivity: 'base' });
 
   switch (sortKey) {
     case 'title-desc':
@@ -2058,7 +2089,7 @@ function sortBooks(books, sortKey) {
 
 function renderSidebar() {
   const genresPresent = [...new Set(allBooks.map(b => b.genre || 'Nezaradené'))]
-    .sort((a, b) => a.localeCompare(b, 'sk'));
+    .sort((a, b) => a.localeCompare(b, getUiLanguage()));
 
   let html = `<a href="#" class="genre-link ${selectedGenre === 'Všetky' ? 'active' : ''}" data-genre="Všetky">
       <span class="label"><span class="swatch" style="background:var(--ink-soft);"></span>${t('allCategoriesLabel')}</span><span class="count">${allBooks.length}</span></a>`;
@@ -2119,7 +2150,7 @@ function renderBooks(booksToRender, sortKey) {
   }, {});
 
   if (selectedGenre === 'Všetky') {
-    const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, 'sk'));
+    const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, getUiLanguage()));
     genreNames.forEach(genre => bookList.appendChild(createGenreSection(genre, byGenre[genre])));
   } else if (byGenre[selectedGenre]) {
     const grid = document.createElement('div');
@@ -2150,7 +2181,7 @@ function renderShelfView(booksToRender, sortKey) {
   }, {});
 
   if (selectedGenre === 'Všetky') {
-    const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, 'sk'));
+    const genreNames = Object.keys(byGenre).sort((a, b) => a.localeCompare(b, getUiLanguage()));
     genreNames.forEach(genre => {
       const section = document.createElement('div');
       section.className = 'genre-section';
@@ -2258,11 +2289,13 @@ function createShelfRow(books) {
     spine.style.height = (SHELF_SPINE_HEIGHT + (i % 3) * 6) + 'px';
     spine.style.background = shelfSpineColor(book);
     spine.title = `${book.title}${book.author ? ' — ' + book.author : ''}`;
+    const readMark = book.readStatus === 'read'
+      ? `<span class="spine-read-mark" title="${t('readTitle')}">✓</span>` : '';
     spine.innerHTML = `
       <span class="spine-text">
         <span class="spine-text-title">${escapeHtml(book.title)}</span>
         ${book.author ? `<span class="spine-text-author">${escapeHtml(book.author)}</span>` : ''}
-      </span>`;
+      </span>${readMark}`;
     row.appendChild(spine);
   });
   wrap.appendChild(row);
@@ -2344,6 +2377,15 @@ function descriptionLooksForeign(text) {
   return true;
 }
 
+// Rozpozná, či je text slovenský/český (obsahuje charakteristickú SK/CZ
+// diakritiku). Katalóg je SK/CZ, takže takýto text je „hodný databázy" —
+// aj keď vznikol prekladom (R9 rozšírené: preklad do jazyka katalógu smie
+// prispieť do zdieľanej DB, preklad do iného jazyka ostáva lokálny).
+function looksSlovakOrCzech(text) {
+  if (!text) return false;
+  return /[áäčďéíĺľňóôŕšťúýžěřů-]/i.test(text) && /[čšžťďňľáíéúäôěř]/i.test(text);
+}
+
 async function handleDetailClick(bookId) {
   const book = allBooks.find(b => b.id === bookId);
   if (!book) return;
@@ -2363,6 +2405,7 @@ async function handleDetailClick(bookId) {
   modalGenre.textContent = displayGenre(book.genre || 'Nezaradené');
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
+  updateModalAiBadges(book);
 
   bookModal.classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -3627,14 +3670,29 @@ function renderGalleryCovers() {
   });
 }
 
+// Zobrazí/skryje „AI" značky na obale a popise v detaile knihy podľa toho,
+// či sú AI-generované (book.coverIsAi / book.descriptionIsAi).
+function updateModalAiBadges(book) {
+  if (modalCoverAiBadge) {
+    modalCoverAiBadge.style.display = (book && book.coverIsAi && book.coverUrl) ? 'inline-flex' : 'none';
+  }
+  if (modalDescAiBadge) {
+    modalDescAiBadge.style.display = (book && book.descriptionIsAi && book.description) ? 'inline-flex' : 'none';
+  }
+}
+
 function selectGalleryCover(url) {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
   book.coverUrl = url;
+  // Zisti, či vybraný obal je AI-generovaný (má v galérii generated: true).
+  const item = galleryCovers.find(g => g.url === url);
+  book.coverIsAi = !!(item && item.generated);
   modalCover.src = url;
   saveBooks(true);
   filterAndRenderBooks();
   renderGalleryCovers();
+  updateModalAiBadges(book);
   showToast(t('coverSaved'), 'success', 2000);
 }
 
@@ -3798,8 +3856,8 @@ function applyMatchCandidate(idx) {
   // Prepíš celý záznam. Prázdne polia kandidáta nemažú existujúce dáta.
   if (c.title) book.title = c.title;
   if (c.author) book.author = c.author;
-  if (c.coverUrl) book.coverUrl = c.coverUrl;
-  if (c.description) book.description = c.description;
+  if (c.coverUrl) { book.coverUrl = c.coverUrl; book.coverIsAi = false; }
+  if (c.description) { book.description = c.description; book.descriptionIsAi = false; }
   if (c.publishYear) book.publishYear = c.publishYear;
   if (c.pageCount) book.pageCount = c.pageCount;
   if (c.isbn) book.isbn = c.isbn;
@@ -4046,12 +4104,18 @@ modalAiBtn.addEventListener('click', async () => {
     const accepted = await awaitAiConfirm(result.description);
     if (accepted) {
       book.description = result.description;
+      book.descriptionIsAi = true;
       modalDescription.textContent = book.description;
       updateTranslateButtonVisibility(book);
       saveBooks(true);
       filterAndRenderBooks();
-      // R8 — tíško prispej popisom do zdieľaného katalógu (len ak v DB chýba)
-      contributeDescriptionToCatalog(book);
+      updateModalAiBadges(book);
+      // R8 — tíško prispej popisom do zdieľaného katalógu (len ak v DB chýba).
+      // Poistka: prispievame len ak je popis SK/CZ (jazyk katalógu). Gemini
+      // ho generuje po slovensky, takže to zvyčistí len prípadné výnimky.
+      if (looksSlovakOrCzech(book.description)) {
+        contributeDescriptionToCatalog(book);
+      }
     } else {
       closeAiConfirm(false);
     }
@@ -4208,11 +4272,17 @@ modalTranslateBtn.addEventListener('click', async () => {
   if (translated) {
     const accepted = await awaitAiConfirm(translated);
     if (accepted) {
-      // R9 — preklad ostáva LEN lokálne, do zdieľanej DB sa NIKDY nenahráva.
+      // R9 (rozšírené): preklad ostáva lokálne, ALE ak je v slovenčine/češtine
+      // (jazyk katalógu), smie prispieť do zdieľanej DB — je to „hodný" popis.
+      // Preklad do iného jazyka do DB nejde. contributeDescriptionToCatalog
+      // aj tak zapíše len ak v DB popis chýba (overený má prednosť).
       book.description = translated;
       saveBooks(true);
       modalDescription.textContent = translated;
       filterAndRenderBooks();
+      if (looksSlovakOrCzech(translated)) {
+        contributeDescriptionToCatalog(book);
+      }
     } else {
       closeAiConfirm(false);
     }
