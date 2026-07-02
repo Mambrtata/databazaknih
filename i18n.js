@@ -134,6 +134,12 @@ const UI_STRINGS = {
     matchApplied: "Metadáta knihy aktualizované.",
     sourceCatalog: "Katalóg",
 
+    // === Bočná lista autorov (R1) ===
+    authorsLabel: "Autori",
+    searchAuthor: "Hľadaj autora…",
+    noAuthorFound: "Žiadny autor.",
+    allAuthorsLabel: "Všetci autori",
+
     // === AI potvrdzovacie okno (R10) ===
     aiSuggestTitle: "Návrh popisu od AI",
     aiTranslateTitle: "Návrh prekladu",
@@ -540,6 +546,12 @@ const UI_STRINGS = {
     matchNothing: "No candidates found. Try editing the title or author and run again.",
     matchApplied: "Book metadata updated.",
     sourceCatalog: "Catalog",
+
+    // === Author sidebar (R1) ===
+    authorsLabel: "Authors",
+    searchAuthor: "Search author…",
+    noAuthorFound: "No author.",
+    allAuthorsLabel: "All authors",
 
     // === AI confirmation dialog (R10) ===
     aiSuggestTitle: "AI description suggestion",

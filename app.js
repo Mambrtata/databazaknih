@@ -249,6 +249,8 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   currentUserLabel = document.getElementById('currentUserLabel'),
   syncStatusEl = document.getElementById('syncStatus'),
   genreListContainer = document.getElementById('genreList'),
+  authorListContainer = document.getElementById('authorList'),
+  authorSearchInput = document.getElementById('authorSearch'),
   sidebarPanel = document.getElementById('sidebarPanel'),
   mobileCategoriesToggle = document.getElementById('mobileCategoriesToggle'),
   mobileCategoriesActiveLabel = document.getElementById('mobileCategoriesActiveLabel'),
@@ -318,6 +320,9 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   aiConfirmCloseBtn = document.getElementById('aiConfirmCloseBtn'),
   modalCoverAiBadge = document.getElementById('modalCoverAiBadge'),
   modalDescAiBadge = document.getElementById('modalDescAiBadge'),
+  modalRating = document.getElementById('modalRating'),
+  modalRatingClear = document.getElementById('modalRatingClear'),
+  themeToggle = document.getElementById('themeToggle'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
   modalEditBtn = document.getElementById('modalEditBtn'),
@@ -376,6 +381,7 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
 
 let allBooks = [];
 let selectedGenre = 'Všetky';
+let selectedAuthor = null;
 let filterLoaned = false;
 let detailsFetchInitiated = false;
 let currentModalBookId = null;
@@ -1018,6 +1024,10 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
       if (cat.description) description = cat.description;
       if (cat.publishYear) publishYear = cat.publishYear;
       if (cat.pageCount) pageCount = cat.pageCount;
+      // Jazyk a vydavateľstvo uložíme priamo na knihu (nie sú v návratovom
+      // objekte fetchBookDetails) — dopĺňame len ak chýbajú.
+      if (book && cat.language && !book.language) book.language = cat.language;
+      if (book && cat.publisher && !book.publisher) book.publisher = cat.publisher;
     }
   }
 
@@ -2053,6 +2063,9 @@ function filterAndRenderBooks() {
   if (selectedGenre !== 'Všetky') {
     toDisplay = toDisplay.filter(b => (b.genre || 'Nezaradené') === selectedGenre);
   }
+  if (selectedAuthor) {
+    toDisplay = toDisplay.filter(b => ((b.author || '').trim() || t('unknownAuthor')) === selectedAuthor);
+  }
   if (term) {
     toDisplay = toDisplay.filter(b =>
       b.title.toLowerCase().includes(term) ||
@@ -2104,6 +2117,43 @@ function renderSidebar() {
   if (mobileCategoriesActiveLabel) {
     mobileCategoriesActiveLabel.textContent = selectedGenre === 'Všetky' ? '' : displayGenre(selectedGenre);
   }
+  renderAuthorList(authorSearchInput ? authorSearchInput.value : '');
+}
+
+// R1 — Zoznam autorov v bočnej lište. Zobrazuje autorov (voliteľne filtrovaných
+// podľa hľadaného textu); klik vyfiltruje knihy daného autora. Bez hľadania
+// ukáže max 30 autorov, nech to nie je pridlhé.
+function renderAuthorList(filter = '') {
+  if (!authorListContainer) return;
+  const authorCounts = {};
+  allBooks.forEach(b => {
+    const a = (b.author || '').trim() || t('unknownAuthor');
+    authorCounts[a] = (authorCounts[a] || 0) + 1;
+  });
+
+  const term = filter.toLowerCase().trim();
+  let authors = Object.keys(authorCounts)
+    .filter(a => !term || a.toLowerCase().includes(term))
+    .sort((a, b) => a.localeCompare(b, getUiLanguage(), { sensitivity: 'base' }));
+
+  if (authors.length === 0) {
+    authorListContainer.innerHTML = `<p style="font-size:12px; color:var(--ink-soft); margin:6px 0 0;">${t('noAuthorFound')}</p>`;
+    return;
+  }
+
+  let html = '';
+  // „Všetci autori" na zrušenie filtra (len keď nehľadáme)
+  if (!term) {
+    html += `<a href="#" class="genre-link ${!selectedAuthor ? 'active' : ''}" data-author="">
+        <span class="label">${t('allAuthorsLabel')}</span><span class="count">${Object.keys(authorCounts).length}</span></a>`;
+    authors = authors.slice(0, 30);
+  }
+  authors.forEach(a => {
+    const isUnknown = a === t('unknownAuthor');
+    html += `<a href="#" class="genre-link ${selectedAuthor === a ? 'active' : ''}" data-author="${escapeHtml(a)}">
+        <span class="label">${escapeHtml(a)}</span><span class="count">${authorCounts[a]}</span></a>`;
+  });
+  authorListContainer.innerHTML = html;
 }
 
 function renderBooks(booksToRender, sortKey) {
@@ -2283,6 +2333,7 @@ function createShelfRow(books) {
   books.forEach((book, i) => {
     const spine = document.createElement('div');
     spine.className = 'shelf-spine';
+    if (book.readStatus === 'read') spine.classList.add('is-read');
     spine.dataset.id = book.id;
     const width = shelfSpineWidth(book);
     spine.style.width = width + 'px';
@@ -2343,6 +2394,7 @@ function createBookElement(book) {
       <p class="book-title" title="${escapeHtml(book.title)}">${escapeHtml(book.title)}</p>
       <p class="book-author">${escapeHtml(book.author) || t('unknownAuthor')}</p>
       ${(book.publishYear || book.pageCount) ? `<p class="book-meta">${[book.publishYear, book.pageCount ? book.pageCount + ' s.' : null].filter(Boolean).join(' · ')}</p>` : ''}
+      ${book.rating ? `<div class="card-rating" title="${book.rating}/5">${'★'.repeat(book.rating)}</div>` : ''}
     </div>`;
   return el;
 }
@@ -2406,6 +2458,7 @@ async function handleDetailClick(bookId) {
   updateModalIsbnDisplay(book);
   updateModalMetaDisplay(book);
   updateModalAiBadges(book);
+  updateRatingDisplay(book);
 
   bookModal.classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -2548,7 +2601,8 @@ function updateModalMetaDisplay(book) {
   const parts = [
     book.publishYear,
     book.pageCount ? book.pageCount + t('pagesSuffix') : null,
-    book.language ? languageLabel(book.language) : null
+    book.language ? languageLabel(book.language) : null,
+    book.publisher || null
   ].filter(Boolean);
   if (parts.length > 0) {
     modalMeta.textContent = parts.join(' · ');
@@ -3511,11 +3565,25 @@ genreListContainer.addEventListener('click', (e) => {
   const link = e.target.closest('.genre-link');
   if (link && link.dataset.genre) {
     selectedGenre = link.dataset.genre;
+    selectedAuthor = null; // výber kategórie zruší filter autora
     filterAndRenderBooks();
-    // Na mobile po výbere kategórie menu rovno zbalíme, nech sa hneď
-    // vidí výsledok (zoznam kníh), nie naďalej rozbalený zoznam kategórií.
     sidebarPanel.classList.remove('mobile-open');
   }
+});
+
+// R1 — klik na autora v bočnej lište vyfiltruje jeho knihy
+authorListContainer.addEventListener('click', (e) => {
+  const link = e.target.closest('.genre-link');
+  if (!link) return;
+  e.preventDefault();
+  selectedAuthor = link.dataset.author || null;
+  selectedGenre = 'Všetky'; // výber autora zruší filter kategórie
+  filterAndRenderBooks();
+  sidebarPanel.classList.remove('mobile-open');
+});
+
+authorSearchInput.addEventListener('input', () => {
+  renderAuthorList(authorSearchInput.value);
 });
 
 mobileCategoriesToggle.addEventListener('click', () => {
@@ -3672,6 +3740,16 @@ function renderGalleryCovers() {
 
 // Zobrazí/skryje „AI" značky na obale a popise v detaile knihy podľa toho,
 // či sú AI-generované (book.coverIsAi / book.descriptionIsAi).
+// R6 — Moje hodnotenie (hviezdičky 1-5). Uložené na book.rating.
+function updateRatingDisplay(book) {
+  if (!modalRating) return;
+  const r = book && book.rating ? book.rating : 0;
+  modalRating.querySelectorAll('.star').forEach(s => {
+    s.classList.toggle('filled', parseInt(s.dataset.val, 10) <= r);
+  });
+  if (modalRatingClear) modalRatingClear.style.display = r > 0 ? 'inline' : 'none';
+}
+
 function updateModalAiBadges(book) {
   if (modalCoverAiBadge) {
     modalCoverAiBadge.style.display = (book && book.coverIsAi && book.coverUrl) ? 'inline-flex' : 'none';
@@ -3737,7 +3815,8 @@ async function openMatchModal() {
       (data.candidates || []).forEach(c => addCand({
         title: c.title, author: c.author, coverUrl: c.coverUrl,
         description: c.description, publishYear: c.publishYear,
-        pageCount: c.pageCount, isbn: c.isbn, source: t('sourceCatalog'),
+        pageCount: c.pageCount, isbn: c.isbn, language: c.language,
+        publisher: c.publisher, source: t('sourceCatalog'),
       }));
     }
   } catch (e) { /* pokračuj na ostatné zdroje */ }
@@ -3861,6 +3940,8 @@ function applyMatchCandidate(idx) {
   if (c.publishYear) book.publishYear = c.publishYear;
   if (c.pageCount) book.pageCount = c.pageCount;
   if (c.isbn) book.isbn = c.isbn;
+  if (c.language) book.language = c.language;
+  if (c.publisher) book.publisher = c.publisher;
 
   saveBooks(true);
   filterAndRenderBooks();
@@ -4047,6 +4128,40 @@ function closeAiConfirm(result) {
 }
 
 aiConfirmSaveBtn.addEventListener('click', () => closeAiConfirm(true));
+
+// R6 — klik na hviezdičku nastaví hodnotenie; klik na už nastavenú hodnotu
+// s rovnakým počtom nechá tak; „×" zruší.
+if (modalRating) {
+  modalRating.querySelectorAll('.star').forEach(star => {
+    star.addEventListener('click', () => {
+      const book = allBooks.find(b => b.id === currentModalBookId);
+      if (!book) return;
+      book.rating = parseInt(star.dataset.val, 10);
+      saveBooks(true);
+      updateRatingDisplay(book);
+      filterAndRenderBooks();
+    });
+    star.addEventListener('mouseenter', () => {
+      const v = parseInt(star.dataset.val, 10);
+      modalRating.querySelectorAll('.star').forEach(s =>
+        s.classList.toggle('filled', parseInt(s.dataset.val, 10) <= v));
+    });
+  });
+  modalRating.addEventListener('mouseleave', () => {
+    const book = allBooks.find(b => b.id === currentModalBookId);
+    if (book) updateRatingDisplay(book);
+  });
+}
+if (modalRatingClear) {
+  modalRatingClear.addEventListener('click', () => {
+    const book = allBooks.find(b => b.id === currentModalBookId);
+    if (!book) return;
+    book.rating = 0;
+    saveBooks(true);
+    updateRatingDisplay(book);
+    filterAndRenderBooks();
+  });
+}
 aiConfirmCancelBtn.addEventListener('click', () => closeAiConfirm(false));
 aiConfirmCloseBtn.addEventListener('click', () => closeAiConfirm(false));
 aiConfirmModal.addEventListener('click', (e) => { if (e.target === aiConfirmModal) closeAiConfirm(false); });
@@ -4757,6 +4872,30 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 // Štart
 // ============================================================
+
+// R7 — Tmavý režim. Uložené v localStorage, aplikované na <html data-theme>.
+const THEME_STORAGE = 'domaca_kniznica_theme';
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+  if (themeToggle) themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+function initTheme() {
+  let theme = localStorage.getItem(THEME_STORAGE);
+  if (!theme) {
+    // Prvý raz — rešpektuj systémové nastavenie prehliadača.
+    theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  applyTheme(theme);
+}
+if (themeToggle) {
+  themeToggle.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(THEME_STORAGE, next);
+    applyTheme(next);
+  });
+}
+initTheme();
 
 async function init() {
   applyTranslations();
