@@ -302,6 +302,13 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   coverGalleryUrlCancel = document.getElementById('coverGalleryUrlCancel'),
   coverGalleryPasteBtn = document.getElementById('coverGalleryPasteBtn'),
   modalTranslateBtn = document.getElementById('modalTranslateBtn'),
+  aiConfirmModal = document.getElementById('aiConfirmModal'),
+  aiConfirmTitle = document.getElementById('aiConfirmTitle'),
+  aiConfirmStatus = document.getElementById('aiConfirmStatus'),
+  aiConfirmText = document.getElementById('aiConfirmText'),
+  aiConfirmSaveBtn = document.getElementById('aiConfirmSaveBtn'),
+  aiConfirmCancelBtn = document.getElementById('aiConfirmCancelBtn'),
+  aiConfirmCloseBtn = document.getElementById('aiConfirmCloseBtn'),
   modalViewMode = document.getElementById('modalViewMode'),
   modalEditMode = document.getElementById('modalEditMode'),
   modalEditBtn = document.getElementById('modalEditBtn'),
@@ -608,21 +615,29 @@ function normalizeForDuplicateCheck(text) {
 }
 
 // Nájde existujúcu knihu v katalógu, ktorá je pravdepodobne duplicitom danej
-// importovanej knihy. ISBN (ak ho majú obe) je najspoľahlivejší spôsob —
-// jednoznačne identifikuje vydanie. Bez ISBN porovnávame normalizovaný
-// názov + autora.
+// knihy. Vracia { book, matchType } alebo null.
+//   matchType: 'isbn'          — zhoda podľa ISBN (najspoľahlivejšia)
+//              'title-has-isbn'— zhoda podľa názvu+autora, existujúca MÁ ISBN
+//              'title-no-isbn' — zhoda podľa názvu+autora, existujúca BEZ ISBN
+// ISBN (ak ho majú obe) jednoznačne identifikuje vydanie; bez neho
+// porovnávame normalizovaný názov + autora.
 function findDuplicateBook(candidate) {
   if (candidate.isbn) {
     const isbnMatch = allBooks.find(b => b.isbn && b.isbn === candidate.isbn);
-    if (isbnMatch) return isbnMatch;
+    if (isbnMatch) return { book: isbnMatch, matchType: 'isbn' };
   }
   const titleKey = normalizeForDuplicateCheck(candidate.title);
   const authorKey = normalizeForDuplicateCheck(candidate.author);
   if (!titleKey) return null;
-  return allBooks.find(b =>
+  const nameMatch = allBooks.find(b =>
     normalizeForDuplicateCheck(b.title) === titleKey &&
     normalizeForDuplicateCheck(b.author) === authorKey
-  ) || null;
+  );
+  if (!nameMatch) return null;
+  return {
+    book: nameMatch,
+    matchType: nameMatch.isbn ? 'title-has-isbn' : 'title-no-isbn'
+  };
 }
 
 let pendingImportBooks = null;
@@ -1149,11 +1164,11 @@ async function fetchBookDetails(title, author, originalTitle, book, enabledSourc
 // ako prvú. https://openlibrary.org/developers/api
 // ============================================================
 
-async function fetchWithTimeout(url, ms) {
+async function fetchWithTimeout(url, ms, options) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...(options || {}), signal: controller.signal });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -1457,23 +1472,72 @@ async function fetchCoverFromWikidata(title, author) {
 // CRUD operácie nad knihami
 // ============================================================
 
-async function addBook(title, author, genre, originalTitle, skipDetails, isbn, silentDuplicateSkip = false) {
+async function addBook(title, author, genre, originalTitle, skipDetails, isbn, silentDuplicateSkip = false, source = 'manual') {
   if (!title || !title.trim()) return;
 
   const candidate = { title: title.trim(), author: (author || '').trim(), isbn: normalizeIsbn(isbn || '') };
-  const duplicate = findDuplicateBook(candidate);
-  if (duplicate) {
-    if (silentDuplicateSkip) {
-      // Shelf scan — ticho preskočíme, upozorníme súhrnne po skončení
+  const dup = findDuplicateBook(candidate);
+  if (dup) {
+    const existing = dup.book;
+
+    // --- 1A / 3A: zhoda podľa ISBN → kniha už je, preskočiť + upozorniť ---
+    if (dup.matchType === 'isbn') {
+      if (!silentDuplicateSkip) {
+        showToast(tf('dupAlreadyHaveIsbn', { title: existing.title }), 'info', 4000);
+      }
       return 'duplicate';
     }
-    const proceed = confirm(
-      tf('dupPrompt', { title: duplicate.title, authorPart: duplicate.author ? ' (' + duplicate.author + ')' : '' }) +
-      t('dupOkCancel')
-    );
-    if (!proceed) {
-      showToast(t('addCancelledExists'), 'info', 4000);
+
+    // --- 1B: sken ISBN, existujúca má rovnaký názov ale BEZ ISBN ---
+    // → spýtať sa: zlúčiť (doplniť ISBN k existujúcej) alebo pridať nový záznam.
+    if (dup.matchType === 'title-no-isbn' && candidate.isbn && source === 'isbn') {
+      if (silentDuplicateSkip) return 'duplicate';
+      const merge = confirm(
+        tf('dupMergePrompt', { title: existing.title, authorPart: existing.author ? ' (' + existing.author + ')' : '' })
+      );
+      if (merge) {
+        // Zlúčiť: doplniť ISBN + chýbajúce metadáta k existujúcej knihe.
+        existing.isbn = candidate.isbn;
+        saveBooks(true);
+        await enrichBookFromCatalog(existing); // doplní len prázdne polia
+        saveBooks(true);
+        filterAndRenderBooks();
+        showToast(tf('dupMerged', { title: existing.title }), 'success', 3500);
+        return 'merged';
+      }
+      // inak pokračuje nižšie a pridá ako nový záznam (iné vydanie)
+    }
+
+    // --- 2A: foto police, existujúca s rovnakým názvom MÁ ISBN ---
+    // → spýtať sa, či pridať ako novú knihu (z fotky ISBN nemáme).
+    else if (dup.matchType === 'title-has-isbn' && source === 'shelf') {
+      if (silentDuplicateSkip) {
+        // pri hromadnom fotení sa rozhoduje súhrnne — signalizuj „treba sa spýtať"
+        return 'ask';
+      }
+      const addNew = confirm(
+        tf('dupPhotoHasIsbnPrompt', { title: existing.title, authorPart: existing.author ? ' (' + existing.author + ')' : '' })
+      );
+      if (!addNew) return 'duplicate';
+      // inak pokračuje a pridá ako novú
+    }
+
+    // --- 2B: foto police, existujúca s rovnakým názvom BEZ ISBN → preskočiť ---
+    else if (dup.matchType === 'title-no-isbn' && source === 'shelf') {
       return 'duplicate';
+    }
+
+    // --- 3B: ručne, zhoda podľa názvu → spýtať sa (pôvodné správanie) ---
+    else {
+      if (silentDuplicateSkip) return 'duplicate';
+      const proceed = confirm(
+        tf('dupPrompt', { title: existing.title, authorPart: existing.author ? ' (' + existing.author + ')' : '' }) +
+        t('dupOkCancel')
+      );
+      if (!proceed) {
+        showToast(t('addCancelledExists'), 'info', 4000);
+        return 'duplicate';
+      }
     }
   }
 
@@ -2799,12 +2863,47 @@ shelfReviewAddBtn.addEventListener('click', async () => {
 
   let count = 0;
   let skipped = 0;
+  const needAsk = []; // 2A — rovnaký názov existuje s ISBN, treba sa spýtať
+
   for (const b of toAdd) {
-    const result = await addBook(b.title, b.author, "Naskenované z fotky", '', true, '', true);
-    if (result === 'duplicate') { skipped++; } else { count++; }
+    // source='shelf', silentDuplicateSkip=true → 2B ticho preskočí,
+    // 2A vráti 'ask' (rozhodneme hromadne po cykle), 2C pridá.
+    const result = await addBook(b.title, b.author, "Naskenované z fotky", '', true, '', true, 'shelf');
+    if (result === 'duplicate') { skipped++; }
+    else if (result === 'ask') { needAsk.push(b); }
+    else { count++; }
     updateScanOverlay(tf('doneProgress', { done: count, total: toAdd.length }));
   }
   hideScanOverlay();
+
+  // 2A — hromadné rozhodnutie pre knihy, kde existuje rovnaký názov s ISBN
+  // (nevieme, či je to tá istá alebo iné vydanie). Jedna otázka pre všetky.
+  if (needAsk.length > 0) {
+    const addThem = confirm(tf('dupPhotoBulkPrompt', {
+      count: needAsk.length,
+      titles: needAsk.slice(0, 5).map(b => b.title).join(', ') + (needAsk.length > 5 ? '…' : '')
+    }));
+    if (addThem) {
+      for (const b of needAsk) {
+        // force pridať ako novú: source='manual' obíde shelf-vetvu, ale
+        // keďže existujúca má ISBN a táto nemá, matchType bude title-has-isbn
+        // → v manual vetve spadne do 3B confirm; preto pridáme priamo.
+        const nb = {
+          id: 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+          title: b.title.trim(), author: (b.author || '').trim(),
+          genre: 'Naskenované z fotky', originalTitle: '', isbn: '',
+          coverUrl: null, description: null, createdAt: Date.now()
+        };
+        allBooks.unshift(nb);
+        count++;
+      }
+      saveBooks(true);
+      filterAndRenderBooks();
+    } else {
+      skipped += needAsk.length;
+    }
+  }
+
   const skippedNote = skipped > 0 ? tf('skippedInLibrary', { n: skipped }) : '';
   showToast(tf('addedToCatalog', { n: count, bookWord: bookCountWord(count), skippedNote }), 'success', 6000);
   await fetchAllMissingDetails();
@@ -3223,18 +3322,40 @@ async function addBookFromIsbn(isbn) {
     return;
   }
 
-  // Skontrolujeme, či kniha s týmto ISBN (alebo rovnakým názvom+autorom)
-  // už v katalógu nie je — predídeme tak nechcenej duplicite pri skene.
-  const duplicate = findDuplicateBook({ title: title.trim(), author: (author || '').trim(), isbn });
-  if (duplicate) {
-    const proceed = confirm(
-      tf('dupPrompt2', { title: duplicate.title, authorPart: duplicate.author ? ' (' + duplicate.author + ')' : '' }) +
-      t('dupOkCancel')
-    );
-    if (!proceed) {
-      showToast(t('addCancelledExists'), 'info', 4000);
+  // Kontrola duplicity podľa matice (sken ISBN).
+  const dup = findDuplicateBook({ title: title.trim(), author: (author || '').trim(), isbn });
+  if (dup) {
+    const existing = dup.book;
+
+    // 1A — rovnaké ISBN už je → preskočiť + upozorniť.
+    if (dup.matchType === 'isbn') {
+      showToast(tf('dupAlreadyHaveIsbn', { title: existing.title }), 'info', 4000);
       return;
     }
+
+    // 1B — rovnaký názov, existujúca BEZ ISBN → spýtať sa zlúčiť / nový záznam.
+    if (dup.matchType === 'title-no-isbn') {
+      const merge = confirm(
+        tf('dupMergePrompt', { title: existing.title, authorPart: existing.author ? ' (' + existing.author + ')' : '' })
+      );
+      if (merge) {
+        existing.isbn = isbn;
+        if (!existing.coverUrl && coverUrl) existing.coverUrl = coverUrl;
+        if (!existing.description && description) existing.description = description;
+        if (!existing.publishYear && publishYear) existing.publishYear = publishYear;
+        if (!existing.pageCount && pageCount) existing.pageCount = pageCount;
+        existing.isbnSource = 'scanned';
+        existing.isbnVerified = true;
+        saveBooks(true);
+        filterAndRenderBooks();
+        showToast(tf('dupMerged', { title: existing.title }), 'success', 3500);
+        return;
+      }
+      // inak pokračuje a pridá ako nový záznam (iné vydanie)
+    }
+
+    // title-has-isbn pri skene ISBN: obe majú ISBN ale rôzne → iné vydanie,
+    // pridá sa ako nová (žiadna otázka netreba, ISBN sa líši).
   }
 
   const newBook = {
@@ -3839,6 +3960,60 @@ async function generateAiCover(book) {
 modalCoverPickBtn.addEventListener('click', openCoverGallery);
 
 // Tlačidlo AI v riadku ikon — otvorí galériu obalov priamo (bez edit módu)
+// ============================================================
+// R10 — Potvrdzovacie okno pre AI návrhy textu.
+// Zobrazí navrhnutý text a čaká na Uložiť/Zrušiť. Vracia Promise<boolean>.
+// Kým sa hľadá, dá sa zobraziť status a text nechať prázdny.
+// ============================================================
+let aiConfirmResolve = null;
+
+function openAiConfirm(titleText) {
+  aiConfirmTitle.textContent = titleText || t('aiSuggestTitle');
+  aiConfirmStatus.textContent = t('searchingEllipsis');
+  aiConfirmText.textContent = '';
+  aiConfirmSaveBtn.disabled = true;
+  aiConfirmModal.style.display = 'flex';
+}
+
+// Naplní modal navrhnutým textom a čaká na rozhodnutie používateľa.
+function awaitAiConfirm(suggestedText) {
+  aiConfirmStatus.textContent = '';
+  aiConfirmText.textContent = suggestedText;
+  aiConfirmSaveBtn.disabled = false;
+  return new Promise(resolve => { aiConfirmResolve = resolve; });
+}
+
+function closeAiConfirm(result) {
+  aiConfirmModal.style.display = 'none';
+  if (aiConfirmResolve) { aiConfirmResolve(result); aiConfirmResolve = null; }
+}
+
+aiConfirmSaveBtn.addEventListener('click', () => closeAiConfirm(true));
+aiConfirmCancelBtn.addEventListener('click', () => closeAiConfirm(false));
+aiConfirmCloseBtn.addEventListener('click', () => closeAiConfirm(false));
+aiConfirmModal.addEventListener('click', (e) => { if (e.target === aiConfirmModal) closeAiConfirm(false); });
+
+// ============================================================
+// R8 — Tíško prispeje AI popisom do zdieľaného katalógu (cez Netlify
+// funkciu, ktorá zapíše LEN ak popis v DB chýba a označí ho 'ai').
+// Beží na pozadí, chyby ignoruje — nesmie rušiť používateľa.
+// ============================================================
+async function contributeDescriptionToCatalog(book) {
+  if (!book || !book.description) return;
+  try {
+    await fetchWithTimeout('/.netlify/functions/catalog-contribute', 7000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        isbn: book.isbn || '',
+        title: book.title || '',
+        author: book.author || '',
+        description: book.description || '',
+      }),
+    });
+  } catch (e) { /* ticho — príspevok je best-effort */ }
+}
+
 modalAiBtn.addEventListener('click', async () => {
   const book = allBooks.find(b => b.id === currentModalBookId);
   if (!book) return;
@@ -3847,39 +4022,49 @@ modalAiBtn.addEventListener('click', async () => {
   modalAiBtn.querySelector('.modal-icon-label').textContent = '…';
   if (modalErrorMessage) modalErrorMessage.textContent = '';
 
-  const result = await searchViaGeminiWeb(book);
-  if (result) {
-    let changed = false;
+  // R10 — otvor potvrdzovacie okno so stavom „Hľadám…"
+  openAiConfirm(t('aiSuggestTitle'));
 
-    if (result.description && (!book.description || result.description.length > book.description.length)) {
+  const result = await searchViaGeminiWeb(book);
+
+  // Obálku spracujeme bez ohľadu na potvrdenie popisu (rieši sa galériou).
+  let coverChanged = false;
+  if (result && result.coverImageUrl) {
+    galleryCoverBookId = currentModalBookId;
+    if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
+      galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
+    }
+    if (!book.coverUrl) {
+      book.coverUrl = result.coverImageUrl;
+      modalCover.src = result.coverImageUrl;
+      coverChanged = true;
+    }
+  }
+
+  if (result && result.description) {
+    // R10 — ukáž návrh, čakaj na Uložiť/Zrušiť
+    const accepted = await awaitAiConfirm(result.description);
+    if (accepted) {
       book.description = result.description;
       modalDescription.textContent = book.description;
       updateTranslateButtonVisibility(book);
-      changed = true;
+      saveBooks(true);
+      filterAndRenderBooks();
+      // R8 — tíško prispej popisom do zdieľaného katalógu (len ak v DB chýba)
+      contributeDescriptionToCatalog(book);
+    } else {
+      closeAiConfirm(false);
     }
-
-    if (result.coverImageUrl) {
-      galleryCoverBookId = currentModalBookId;
-      if (!galleryCovers.find(g => g.url === result.coverImageUrl)) {
-        galleryCovers.push({ url: result.coverImageUrl, source: 'Gemini', generated: false });
-      }
-      // Nastav obal len ak kniha žiadny nemá
-      if (!book.coverUrl) {
-        book.coverUrl = result.coverImageUrl;
-        modalCover.src = result.coverImageUrl;
-        changed = true;
-      }
-      openCoverGallery();
-    }
-
-    if (!result.description && !result.coverImageUrl) {
+  } else {
+    // žiadny popis — zavri okno, prípadne upozorni
+    closeAiConfirm(false);
+    if (!result || (!result.description && !result.coverImageUrl)) {
       showToast(t('geminiNoDescCover'), 'error', 3000);
     }
-
-    if (modalErrorMessage) modalErrorMessage.textContent = '';
-
-    if (changed) { saveBooks(true); filterAndRenderBooks(); }
   }
+
+  if (coverChanged) { saveBooks(true); filterAndRenderBooks(); }
+  if (result && result.coverImageUrl) openCoverGallery();
 
   modalAiBtn.disabled = false;
   modalAiBtn.querySelector('.modal-icon-label').textContent = 'AI';
@@ -4016,12 +4201,23 @@ modalTranslateBtn.addEventListener('click', async () => {
   modalTranslateBtn.disabled = true;
   modalTranslateBtn.textContent = t('translatingEllipsis');
 
+  // R10 — potvrdzovacie okno
+  openAiConfirm(t('aiTranslateTitle'));
   const translated = await translateDescription(book);
+
   if (translated) {
-    book.description = translated;
-    saveBooks(true);
-    modalDescription.textContent = translated;
-    filterAndRenderBooks();
+    const accepted = await awaitAiConfirm(translated);
+    if (accepted) {
+      // R9 — preklad ostáva LEN lokálne, do zdieľanej DB sa NIKDY nenahráva.
+      book.description = translated;
+      saveBooks(true);
+      modalDescription.textContent = translated;
+      filterAndRenderBooks();
+    } else {
+      closeAiConfirm(false);
+    }
+  } else {
+    closeAiConfirm(false);
   }
 
   modalTranslateBtn.disabled = false;

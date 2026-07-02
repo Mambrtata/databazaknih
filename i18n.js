@@ -134,6 +134,18 @@ const UI_STRINGS = {
     matchApplied: "Metadáta knihy aktualizované.",
     sourceCatalog: "Katalóg",
 
+    // === AI potvrdzovacie okno (R10) ===
+    aiSuggestTitle: "Návrh popisu od AI",
+    aiTranslateTitle: "Návrh prekladu",
+    saveAiBtn: "Uložiť",
+
+    // === Riešenie duplicít pri pridávaní ===
+    dupAlreadyHaveIsbn: "Knihu „{title}“ už máš v knižnici (rovnaké ISBN).",
+    dupMergePrompt: "Knihu „{title}“{authorPart} už máš v knižnici bez ISBN.\n\nOK = zlúčiť (doplniť naskenované ISBN k existujúcej knihe)\nZrušiť = pridať ako nový záznam (napr. iné vydanie)",
+    dupMerged: "ISBN doplnené ku knihe „{title}“.",
+    dupPhotoHasIsbnPrompt: "Knihu s názvom „{title}“{authorPart} už máš (s ISBN).\n\nOK = pridať aj túto ako novú\nZrušiť = preskočiť",
+    dupPhotoBulkPrompt: "{count} rozpoznaných kníh už máš v knižnici pod rovnakým názvom (s ISBN): {titles}\n\nOK = pridať ich ako nové knihy\nZrušiť = preskočiť ich",
+
     // === Tiché doplnenie z katalógu ===
     enrichedFromCatalog: "Doplnené z katalógu: {fields}.",
     periodicScanFilled: "Katalóg doplnil údaje pre {count} kníh.",
@@ -528,6 +540,18 @@ const UI_STRINGS = {
     matchNothing: "No candidates found. Try editing the title or author and run again.",
     matchApplied: "Book metadata updated.",
     sourceCatalog: "Catalog",
+
+    // === AI confirmation dialog (R10) ===
+    aiSuggestTitle: "AI description suggestion",
+    aiTranslateTitle: "Translation suggestion",
+    saveAiBtn: "Save",
+
+    // === Duplicate handling when adding ===
+    dupAlreadyHaveIsbn: "You already have \"{title}\" in your library (same ISBN).",
+    dupMergePrompt: "You already have \"{title}\"{authorPart} in your library without an ISBN.\n\nOK = merge (add the scanned ISBN to the existing book)\nCancel = add as a new record (e.g. a different edition)",
+    dupMerged: "ISBN added to \"{title}\".",
+    dupPhotoHasIsbnPrompt: "You already have a book titled \"{title}\"{authorPart} (with an ISBN).\n\nOK = add this one as new\nCancel = skip",
+    dupPhotoBulkPrompt: "{count} recognized books are already in your library under the same title (with an ISBN): {titles}\n\nOK = add them as new books\nCancel = skip them",
 
     // === Silent enrichment from catalog ===
     enrichedFromCatalog: "Filled in from the catalog: {fields}.",
