@@ -139,6 +139,29 @@ const UI_STRINGS = {
     searchAuthor: "Hľadaj autora…",
     noAuthorFound: "Žiadny autor.",
     allAuthorsLabel: "Všetci autori",
+    showMoreAuthors: "Zobraziť viac",
+    showLessAuthors: "Zobraziť menej",
+
+    // === História čítaní (R2) ===
+    readingsTitle: "História čítaní",
+    addReadingBtn: "+ Pridať čítanie",
+    noReadingsYet: "Zatiaľ žiadne čítanie.",
+    readingNotePlaceholder: "Poznámka (napr. dojmy)…",
+
+    // === Série a zväzky (R3) ===
+    seriesLabel: "Séria",
+    seriesPlaceholder: "nepovinné, napr. Zaklínač",
+    seriesOrderLabel: "Poradie v sérii",
+
+    // === Poznámky a citáty (R4) ===
+    notesTitle: "Poznámky a citáty",
+    notesPlaceholder: "Tvoje poznámky, myšlienky, citáty…",
+    scanQuoteBtn: "📷 Odfotiť citát",
+    quoteModalTitle: "Vybrať citát",
+    quoteModalHint: "Označ časť textu, ktorú chceš pridať, a potvrď. Ak neoznačíš nič, pridá sa celý text.",
+    quoteAddBtn: "Pridať",
+    quoteScanning: "Prepisujem text z fotky…",
+    quoteScanFailed: "Text sa nepodarilo prepísať. Skús ostrejšiu fotku.",
 
     // === AI potvrdzovacie okno (R10) ===
     aiSuggestTitle: "Návrh popisu od AI",
@@ -552,6 +575,29 @@ const UI_STRINGS = {
     searchAuthor: "Search author…",
     noAuthorFound: "No author.",
     allAuthorsLabel: "All authors",
+    showMoreAuthors: "Show more",
+    showLessAuthors: "Show less",
+
+    // === Reading history (R2) ===
+    readingsTitle: "Reading history",
+    addReadingBtn: "+ Add reading",
+    noReadingsYet: "No readings yet.",
+    readingNotePlaceholder: "Note (e.g. impressions)…",
+
+    // === Series and volumes (R3) ===
+    seriesLabel: "Series",
+    seriesPlaceholder: "optional, e.g. The Witcher",
+    seriesOrderLabel: "Order in series",
+
+    // === Notes and quotes (R4) ===
+    notesTitle: "Notes and quotes",
+    notesPlaceholder: "Your notes, thoughts, quotes…",
+    scanQuoteBtn: "📷 Photograph a quote",
+    quoteModalTitle: "Select quote",
+    quoteModalHint: "Select the part of the text you want to add, then confirm. If you select nothing, the whole text is added.",
+    quoteAddBtn: "Add",
+    quoteScanning: "Transcribing text from photo…",
+    quoteScanFailed: "Couldn't transcribe the text. Try a sharper photo.",
 
     // === AI confirmation dialog (R10) ===
     aiSuggestTitle: "AI description suggestion",
