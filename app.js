@@ -57,6 +57,12 @@ function displayGenre(g) {
   return GENRE_KEYS[g] ? t(GENRE_KEYS[g]) : g;
 }
 
+// Vráti HTML: text + tri animované bodky. Pre statusy dlhších operácií
+// (AI popis, Meta, OCR, galéria), nech používateľ vidí, že to beží.
+function loadingDots(text) {
+  return `${text ? escapeHtml(text) + ' ' : ''}<span class="loading-dots"><span></span><span></span><span></span></span>`;
+}
+
 // Správny tvar slova "kniha" podľa počtu a jazyka rozhrania. SK má trojtvar
 // (1 kniha / 2–4 knihy / 5+ kníh), EN má book/books.
 function bookCountWord(n) {
@@ -323,6 +329,8 @@ const openIsbnScanBtn = document.getElementById('openIsbnScanBtn'),
   modalRating = document.getElementById('modalRating'),
   modalRatingClear = document.getElementById('modalRatingClear'),
   themeToggle = document.getElementById('themeToggle'),
+  mobileSearchToggle = document.getElementById('mobileSearchToggle'),
+  searchWrap = document.getElementById('searchWrap'),
   modalReadingsSection = document.getElementById('modalReadingsSection'),
   modalReadingsList = document.getElementById('modalReadingsList'),
   modalAddReadingBtn = document.getElementById('modalAddReadingBtn'),
@@ -3754,7 +3762,7 @@ function openCoverGallery() {
   // Automaticky dohľadaj VŠETKY dostupné obálky (katalóg, Open Library,
   // Google Books, Wikidata) — nech si používateľ vyberá z viacerých, nielen
   // z aktuálnej. Beží na pozadí, výsledky sa dopĺňajú priebežne.
-  coverGalleryStatus.textContent = t('searchingInDbs');
+  coverGalleryStatus.innerHTML = loadingDots(t('searchingInDbs'));
   fetchAllGalleryCovers(book).then(() => {
     coverGalleryStatus.textContent = galleryCovers.length > 0
       ? t('clickCoverToSelect')
@@ -3907,7 +3915,7 @@ async function openMatchModal() {
 
   matchCandidates = [];
   matchGrid.innerHTML = '';
-  matchStatus.textContent = t('matchSearching');
+  matchStatus.innerHTML = loadingDots(t('matchSearching'));
   matchModal.style.display = 'flex';
 
   const seen = new Set();
@@ -4227,7 +4235,7 @@ let aiConfirmResolve = null;
 
 function openAiConfirm(titleText) {
   aiConfirmTitle.textContent = titleText || t('aiSuggestTitle');
-  aiConfirmStatus.textContent = t('searchingEllipsis');
+  aiConfirmStatus.innerHTML = loadingDots(t('searchingEllipsis').replace(/…|\.\.\./g, '').trim());
   aiConfirmText.textContent = '';
   aiConfirmSaveBtn.disabled = true;
   aiConfirmModal.style.display = 'flex';
@@ -4387,7 +4395,7 @@ coverGallerySearchDbBtn.addEventListener('click', () => {
   if (!book) return;
   coverGallerySearchDbBtn.disabled = true;
   coverGallerySearchDbBtn.textContent = t('searchingBtn');
-  coverGalleryStatus.textContent = t('searchingInDbs');
+  coverGalleryStatus.innerHTML = loadingDots(t('searchingInDbs'));
   fetchAllGalleryCovers(book).then(() => {
     coverGallerySearchDbBtn.disabled = false;
     coverGallerySearchDbBtn.textContent = t('searchInDbs');
@@ -4680,7 +4688,7 @@ if (quotePhotoInput) {
       quotePhotoInput.value = '';
       // otvor okno so stavom
       quoteText.textContent = '';
-      quoteStatus.textContent = t('quoteScanning');
+      quoteStatus.innerHTML = loadingDots(t('quoteScanning'));
       quoteModal.style.display = 'flex';
       const text = await ocrQuoteFromImage(base64);
       if (text) {
@@ -5112,6 +5120,14 @@ if (themeToggle) {
   });
 }
 initTheme();
+
+// Mobile — lupa rozbalí/zbalí vyhľadávacie pole a zafokusuje ho.
+if (mobileSearchToggle && searchWrap) {
+  mobileSearchToggle.addEventListener('click', () => {
+    const open = searchWrap.classList.toggle('search-open');
+    if (open && searchInput) setTimeout(() => searchInput.focus(), 50);
+  });
+}
 
 async function init() {
   applyTranslations();

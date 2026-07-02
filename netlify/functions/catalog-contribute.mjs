@@ -107,16 +107,19 @@ export default async (req) => {
   try {
     const row = await findRow();
     if (!row) {
+      console.log('[contribute] NENAŠIEL knihu v katalógu:', JSON.stringify({ isbn, title, author }));
       return new Response(JSON.stringify({ ok: false, skipped: 'not-in-catalog' }), {
         status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
     // Popis už existuje → NEPREPISUJEME (R8 pravidlo, dvojvrstvový model).
     if (row.description && row.description.trim()) {
+      console.log('[contribute] Kniha už MÁ popis, preskakujem:', row.title);
       return new Response(JSON.stringify({ ok: false, skipped: 'already-has-description' }), {
         status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
+    console.log('[contribute] Zapisujem popis ku knihe:', row.title, '| isbn:', row.isbn || '(bez)');
 
     // Zapíšeme popis + označíme ako 'ai'. PATCH podľa ISBN alebo title+author.
     let patchUrl;
@@ -132,14 +135,18 @@ export default async (req) => {
       body: JSON.stringify({ description, description_source: 'ai' }),
     });
     if (!patch.ok) {
+      const errText = await patch.text().catch(() => '');
+      console.log('[contribute] PATCH ZLYHAL:', patch.status, errText);
       return new Response(JSON.stringify({ ok: false, error: 'patch ' + patch.status }), {
         status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
+    console.log('[contribute] ÚSPECH — popis zapísaný ku knihe:', row.title);
     return new Response(JSON.stringify({ ok: true, contributed: true }), {
       status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
   } catch (e) {
+    console.log('[contribute] VÝNIMKA:', String(e && e.message || e));
     return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e) }), {
       status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
